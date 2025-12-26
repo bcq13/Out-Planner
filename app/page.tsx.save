@@ -1,0 +1,395 @@
+npm run dev
+
+cat > app/page.tsx << 'EOF'
+
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { getDeviceId } from "@/lib/deviceId";
+import {
+  generateExcuse,
+  generateBoundaryScript,
+  rewriteVariant,
+} from "@/lib/excuseEngine";
+
+type Audience = "work" | "friends" | "family";
+type EntryType = "excuse" | "boundary";
+
+type Entry = {
+  id: string;
+  device_id: string;
+  entry_date: string;
+  audience: Audience;
+  fun_level: number;
+  excuse_text: string;
+  entry_type: EntryType;
+};
+
+type ProTip = {
+  id: string;
+  title: string;
+  body: string;
+};
+
+function yyyyMMdd(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+    d.getDate()
+  ).padStart(2, "0")}`;
+}
+
+export default function HomePage() {
+  const year = new Date().getFullYear();
+  const [deviceId, setDeviceId] = useState("");
+  const [entries, setEntries] = useState<Record<string, Entry>>({});
+  const [tips, setTips] = useState<ProTip[]>([]);
+
+  const [selectedDate, setSelectedDate] = useState(yyyyMMdd(new Date()));
+  const [audience, setAudience] = useState<Audience>("friends");
+  const [funLevel, setFunLevel] = useState(2);
+  const [pushyMode, setPushyMode] = useState(false);
+  const [draft, setDraft] = useState("");
+
+  /* device id */
+  useEffect(() => {
+    setDeviceId(getDeviceId());
+  }, []);
+
+  /* load saved entries */
+  useEffect(() => {
+    if (!deviceId) return;
+    fetch(`/api/entries?device_id=${deviceId}&year=${year}`)
+      .then((r) => r.json())
+      .then((j) => {
+        const map: Record<string, Entry> = {};
+        j.data?.forEach((e: Entry) => (map[e.entry_date] = e));
+        setEntries(map);
+      });
+  }, [deviceId, year]);
+
+  /* load pro tips */
+  useEffect(() => {
+    fetch("/api/tips")
+      .then((r) => r.json())
+      .then((j) => setTips(j.data ?? []));
+  }, []);
+
+  /* auto-generate daily draft */
+  useEffect(() => {
+    const date = new Date(`${selectedDate}T00:00:00`);
+    const existing = entries[selectedDate];
+
+    if (existing) {
+      setDraft(existing.excuse_text);
+      setAudience(existing.audience);
+      setFunLevel(existing.fun_level);
+      setPushyMode(existing.entry_type === "boundary");
+    } else {
+      setDraft(
+        pushyMode
+          ? generateBoundaryScript(audience, funLevel)
+          : generateExcuse({ audience, funLevel, date })
+      );
+    }
+  }, [selectedDate, entries]);
+
+  async function saveEntry() {
+    if (!draft.trim() || !deviceId) return;
+
+    await fetch("/api/entries", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        device_id: deviceId,
+        entry_date: selectedDate,
+        audience,
+        fun_level: funLevel,
+        excuse_text: draft,
+        entry_type: pushyMode ? "boundary" : "excuse",
+      }),
+    });
+
+    alert("Saved");
+  }
+
+  function tipOfDay() {
+    if (!tips.length) return null;
+    const n = Number(selectedDate.replaceAll("-", ""));
+    return tips[n % tips.length];
+  }
+
+  return (
+    <main style={{ maxWidth: 1100, margin: "0 auto", padding: 24 }}>
+      <h1>OutPlanner</h1>
+      <p>Daily excuses and boundary scripts for pushy people.</p>
+
+      <label>
+        Audience:
+        <select
+          value={audience}
+          onChange={(e) => setAudience(e.target.value as Audience)}
+        >
+          <option value="work">Work</option>
+          <option value="friends">Friends</option>
+          <option value="family">Family</option>
+        </select>
+      </label>
+
+      <br />
+
+      <label>
+        Fun Level:
+        <input
+          type="range"
+          min={0}
+          max={3}
+          value={funLevel}
+          onChange={(e) => setFunLevel(Number(e.target.value))}
+        />
+        {funLevel}
+      </label>
+
+      <br />
+
+      <label>
+        <input
+          type="checkbox"
+          checked={pushyMode}
+          onChange={(e) => setPushyMode(e.target.checked)}
+        />
+        Pushy People Mode
+      </label>
+
+      <br />
+
+      <textarea
+        rows={6}
+        style={{ width: "100%", marginTop: 10 }}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+      />
+
+      <div style={{ marginTop: 10 }}>
+        <button onClick={() => setDraft(rewriteVariant(draft, "shorter", new Date()))}>
+          Shorter
+        </button>
+        <button onClick={() => setDraft(rewriteVariant(draft, "firmer", new Date()))}>
+          Firmer
+        </button>
+        <button onClick={() => setDraft(rewriteVariant(draft, "workSafe", new Date()))}>
+          Work-safe
+        </button>
+        <button onClick={() => setDraft(rewriteVariant(draft, "noDetails", new Date()))}>
+          No details
+        </button>
+      </div>
+
+      <div style={{ marginTop: 10 }}>
+        <button onClick={saveEntry}>Save</button>
+        <button onClick={() => navigator.clipboard.writeText(draft)}>Copy</button>
+      </div>
+
+      {tipOfDay() && (
+        <div style={{ marginTop: 20 }}>
+          <strong>Pro Tip:</strong> {tipOfDay()?.body}
+        </div>
+      )}
+    </main>
+  );
+}
+
+npm run dev
+
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { getDeviceId } from "@/lib/deviceId";
+import {
+  generateExcuse,
+  generateBoundaryScript,
+  rewriteVariant,
+} from "@/lib/excuseEngine";
+
+type Audience = "work" | "friends" | "family";
+type EntryType = "excuse" | "boundary";
+
+type Entry = {
+  id: string;
+  device_id: string;
+  entry_date: string;
+  audience: Audience;
+  fun_level: number;
+  excuse_text: string;
+  entry_type: EntryType;
+};
+
+type ProTip = {
+  id: string;
+  title: string;
+  body: string;
+};
+
+function yyyyMMdd(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+    d.getDate()
+  ).padStart(2, "0")}`;
+}
+
+export default function HomePage() {
+  const year = new Date().getFullYear();
+  const [deviceId, setDeviceId] = useState("");
+  const [entries, setEntries] = useState<Record<string, Entry>>({});
+  const [tips, setTips] = useState<ProTip[]>([]);
+
+  const [selectedDate, setSelectedDate] = useState(yyyyMMdd(new Date()));
+  const [audience, setAudience] = useState<Audience>("friends");
+  const [funLevel, setFunLevel] = useState(2);
+  const [pushyMode, setPushyMode] = useState(false);
+  const [draft, setDraft] = useState("");
+
+  /* device id */
+  useEffect(() => {
+    setDeviceId(getDeviceId());
+  }, []);
+
+  /* load saved entries */
+  useEffect(() => {
+    if (!deviceId) return;
+    fetch(`/api/entries?device_id=${deviceId}&year=${year}`)
+      .then((r) => r.json())
+      .then((j) => {
+        const map: Record<string, Entry> = {};
+        j.data?.forEach((e: Entry) => (map[e.entry_date] = e));
+        setEntries(map);
+      });
+  }, [deviceId, year]);
+
+  /* load pro tips */
+  useEffect(() => {
+    fetch("/api/tips")
+      .then((r) => r.json())
+      .then((j) => setTips(j.data ?? []));
+  }, []);
+
+  /* auto-generate daily draft */
+  useEffect(() => {
+    const date = new Date(`${selectedDate}T00:00:00`);
+    const existing = entries[selectedDate];
+
+    if (existing) {
+      setDraft(existing.excuse_text);
+      setAudience(existing.audience);
+      setFunLevel(existing.fun_level);
+      setPushyMode(existing.entry_type === "boundary");
+    } else {
+      setDraft(
+        pushyMode
+          ? generateBoundaryScript(audience, funLevel)
+          : generateExcuse({ audience, funLevel, date })
+      );
+    }
+  }, [selectedDate, entries]);
+
+  async function saveEntry() {
+    if (!draft.trim() || !deviceId) return;
+
+    await fetch("/api/entries", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        device_id: deviceId,
+        entry_date: selectedDate,
+        audience,
+        fun_level: funLevel,
+        excuse_text: draft,
+        entry_type: pushyMode ? "boundary" : "excuse",
+      }),
+    });
+
+    alert("Saved");
+  }
+
+  function tipOfDay() {
+    if (!tips.length) return null;
+    const n = Number(selectedDate.replaceAll("-", ""));
+    return tips[n % tips.length];
+  }
+
+  return (
+    <main style={{ maxWidth: 1100, margin: "0 auto", padding: 24 }}>
+      <h1>OutPlanner</h1>
+      <p>Daily excuses and boundary scripts for pushy people.</p>
+
+      <label>
+        Audience:
+        <select
+          value={audience}
+          onChange={(e) => setAudience(e.target.value as Audience)}
+        >
+          <option value="work">Work</option>
+          <option value="friends">Friends</option>
+          <option value="family">Family</option>
+        </select>
+      </label>
+
+      <br />
+
+      <label>
+        Fun Level:
+        <input
+          type="range"
+          min={0}
+          max={3}
+          value={funLevel}
+          onChange={(e) => setFunLevel(Number(e.target.value))}
+        />
+        {funLevel}
+      </label>
+
+      <br />
+
+      <label>
+        <input
+          type="checkbox"
+          checked={pushyMode}
+          onChange={(e) => setPushyMode(e.target.checked)}
+        />
+        Pushy People Mode
+      </label>
+
+      <br />
+
+      <textarea
+        rows={6}
+        style={{ width: "100%", marginTop: 10 }}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+      />
+
+      <div style={{ marginTop: 10 }}>
+        <button onClick={() => setDraft(rewriteVariant(draft, "shorter", new Date()))}>
+          Shorter
+        </button>
+        <button onClick={() => setDraft(rewriteVariant(draft, "firmer", new Date()))}>
+          Firmer
+        </button>
+        <button onClick={() => setDraft(rewriteVariant(draft, "workSafe", new Date()))}>
+          Work-safe
+        </button>
+        <button onClick={() => setDraft(rewriteVariant(draft, "noDetails", new Date()))}>
+          No details
+        </button>
+      </div>
+
+      <div style={{ marginTop: 10 }}>
+        <button onClick={saveEntry}>Save</button>
+        <button onClick={() => navigator.clipboard.writeText(draft)}>Copy</button>
+      </div>
+
+      {tipOfDay() && (
+        <div style={{ marginTop: 20 }}>
+          <strong>Pro Tip:</strong> {tipOfDay()?.body}
+        </div>
+      )}
+    </main>
+  );
+}
