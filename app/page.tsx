@@ -7,28 +7,31 @@ import type { Audience, Mood } from "@/lib/excuseEngine";
 
 type Saved = { text: string; favorite?: boolean; createdAt: number };
 
-const btn: React.CSSProperties = {
-  padding: "10px 14px",
-  borderRadius: 12,
-  border: "1px solid rgba(0,0,0,0.10)",
-  background: "rgba(255,255,255,0.85)",
-  cursor: "pointer",
-  color: "#111",
-};
+function normalize(s: string) {
+  return (s || "").trim().replace(/\s+/g, " ");
+}
 
-const card: React.CSSProperties = {
-  borderRadius: 18,
-  border: "1px solid rgba(0,0,0,0.10)",
-  background: "rgba(255,255,255,0.70)",
-  backdropFilter: "blur(10px)",
-  padding: 16,
-};
+function useTheme() {
+  const [theme, setTheme] = useState<"light" | "dark">("light");
 
-function nowYear() {
-  return new Date().getFullYear();
+  useEffect(() => {
+    const stored = localStorage.getItem("outplanner_theme") as "light" | "dark" | null;
+    const systemDark = window.matchMedia?.("(prefers-color-scheme: dark)")?.matches;
+    const initial = stored ?? (systemDark ? "dark" : "light");
+    setTheme(initial);
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem("outplanner_theme", theme);
+  }, [theme]);
+
+  return { theme, setTheme };
 }
 
 export default function HomePage() {
+  const { theme, setTheme } = useTheme();
+
   const [deviceId, setDeviceId] = useState("");
 
   const [audience, setAudience] = useState<Audience>("friends");
@@ -36,14 +39,14 @@ export default function HomePage() {
   const [request, setRequest] = useState<string>("");
 
   const [draft, setDraft] = useState<string>("");
-  const [copied, setCopied] = useState<boolean>(false);
+  const [toast, setToast] = useState<string>("");
   const [status, setStatus] = useState<string>("");
 
   const [escalation, setEscalation] = useState<number>(0);
 
   const [saved, setSaved] = useState<Saved[]>([]);
 
-  // Load device id + saved (local)
+  // Load device + saved
   useEffect(() => {
     const id = getDeviceId();
     setDeviceId(id);
@@ -56,7 +59,7 @@ export default function HomePage() {
     setDraft(generateExcuse("kind"));
   }, []);
 
-  // Persist saved list
+  // Persist saved
   useEffect(() => {
     if (!deviceId) return;
     try {
@@ -66,19 +69,33 @@ export default function HomePage() {
 
   const favorites = useMemo(() => saved.filter((s) => s.favorite), [saved]);
 
+  function haptic() {
+    // Optional tiny vibration on supported devices (won’t do anything on most desktops)
+    try {
+      if ("vibrate" in navigator) (navigator as any).vibrate?.(10);
+    } catch {}
+  }
+
+  function showToast(msg: string) {
+    setToast(msg);
+    window.setTimeout(() => setToast(""), 1100);
+  }
+
   function makeDraft() {
-    const hasRequest = request.trim().length > 0;
+    const hasRequest = normalize(request).length > 0;
     if (hasRequest) return generateFromRequest({ mood, audience, request });
-    return generateExcuse(mood === "noDetails" ? "noDetails" : mood);
+    return generateExcuse(mood);
   }
 
   function onGenerate() {
+    haptic();
     setEscalation(0);
     setDraft(makeDraft());
     setStatus("");
   }
 
   function onEscalate() {
+    haptic();
     const next = escalation + 1;
     setEscalation(next);
     setDraft(escalate(next));
@@ -86,27 +103,41 @@ export default function HomePage() {
   }
 
   async function onCopy(text: string) {
+    haptic();
     try {
       await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1100);
+      showToast("Copied ✓");
     } catch {
-      setStatus("Copy failed (browser blocked clipboard)");
+      setStatus("Copy failed (clipboard blocked)");
     }
   }
 
+  function saveText(text: string, favorite = false) {
+    const t = normalize(text);
+    if (!t) return;
+
+    setSaved((prev) => [{ text: t, favorite, createdAt: Date.now() }, ...prev]);
+    setStatus(favorite ? "Saved to Favorites ✓" : "Saved ✓");
+    window.setTimeout(() => setStatus(""), 1200);
+  }
+
   function onSave() {
-    if (!draft.trim()) return;
-    setSaved((prev) => [{ text: draft.trim(), createdAt: Date.now() }, ...prev]);
-    setStatus("Saved ✓");
-    setTimeout(() => setStatus(""), 1200);
+    haptic();
+    saveText(draft, false);
+  }
+
+  function onSaveFavorite() {
+    haptic();
+    saveText(draft, true);
   }
 
   function toggleFav(index: number) {
+    haptic();
     setSaved((prev) => prev.map((s, i) => (i === index ? { ...s, favorite: !s.favorite } : s)));
   }
 
   function onRewrite(nextMood: Mood) {
+    haptic();
     setMood(nextMood);
     setDraft((prev) => rewriteVariant(prev, nextMood, audience, request));
     setStatus("");
@@ -120,30 +151,39 @@ export default function HomePage() {
         padding: 22,
         fontFamily:
           '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", system-ui, Segoe UI, Roboto, Arial',
-        color: "#111",
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 16 }}>
         <div>
           <h1 style={{ fontSize: 34, margin: 0 }}>OutPlanner</h1>
-          <p style={{ opacity: 0.72, marginTop: 8 }}>
+          <p style={{ marginTop: 8, opacity: 0.72 }}>
             Say no without guilt. Copy. Save. Escalate when they won’t stop.
           </p>
         </div>
-        <div style={{ fontSize: 12, opacity: 0.6 }}>v {nowYear()} • device {deviceId ? "linked" : "…"}</div>
+
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <button
+            className="btn"
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            title="Toggle dark mode"
+          >
+            {theme === "dark" ? "☾ Dark" : "☀︎ Light"}
+          </button>
+          <div style={{ fontSize: 12, opacity: 0.65 }}>device {deviceId ? "linked" : "…"}</div>
+        </div>
       </div>
 
       <section style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginTop: 14 }}>
-        {/* LEFT: Inputs + Draft */}
-        <div style={card}>
+        {/* LEFT */}
+        <div className="card">
           <div style={{ display: "grid", gap: 10 }}>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               <div style={{ display: "grid", gap: 6 }}>
-                <div style={{ fontSize: 12, fontWeight: 700 }}>Select mood</div>
+                <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85 }}>Select mood</div>
                 <select
                   value={mood}
                   onChange={(e) => setMood(e.target.value as Mood)}
-                  style={{ ...btn, minWidth: 200 }}
+                  style={{ padding: "10px 14px", borderRadius: 12, minWidth: 220 }}
                 >
                   <option value="kind">Kind</option>
                   <option value="professional">Professional</option>
@@ -155,11 +195,11 @@ export default function HomePage() {
               </div>
 
               <div style={{ display: "grid", gap: 6 }}>
-                <div style={{ fontSize: 12, fontWeight: 700 }}>Audience</div>
+                <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85 }}>Audience</div>
                 <select
                   value={audience}
                   onChange={(e) => setAudience(e.target.value as Audience)}
-                  style={{ ...btn, minWidth: 200 }}
+                  style={{ padding: "10px 14px", borderRadius: 12, minWidth: 220 }}
                 >
                   <option value="friends">Friends</option>
                   <option value="family">Family</option>
@@ -169,65 +209,57 @@ export default function HomePage() {
             </div>
 
             <div style={{ display: "grid", gap: 6 }}>
-              <div style={{ fontSize: 12, fontWeight: 700 }}>Paste what they asked (optional)</div>
+              <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85 }}>Paste what they asked (optional)</div>
               <textarea
                 value={request}
                 onChange={(e) => setRequest(e.target.value)}
                 rows={3}
-                placeholder='Example: “Can you cover my shift on Friday?” or “Want to come over tonight?”'
-                style={{
-                  width: "100%",
-                  borderRadius: 14,
-                  padding: 12,
-                  fontSize: 14,
-                  border: "1px solid rgba(0,0,0,0.14)",
-                  outline: "none",
-                }}
+                placeholder='Example: “Can you cover my shift Friday?” or “Want to come over tonight?”'
+                style={{ width: "100%", borderRadius: 14, padding: 12, fontSize: 14 }}
               />
               <div style={{ fontSize: 12, opacity: 0.65 }}>
-                Tip: the more specific the request, the more believable the excuse.
+                More specific request → more believable excuse.
               </div>
             </div>
 
             <div style={{ display: "grid", gap: 8 }}>
-              <div style={{ fontSize: 12, fontWeight: 700 }}>Your excuse</div>
+              <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85 }}>Your excuse</div>
               <textarea
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 rows={5}
-                style={{
-                  width: "100%",
-                  borderRadius: 16,
-                  padding: 14,
-                  fontSize: 16,
-                  lineHeight: 1.4,
-                  border: "1px solid rgba(0,0,0,0.14)",
-                  outline: "none",
-                }}
+                style={{ width: "100%", borderRadius: 16, padding: 14, fontSize: 16, lineHeight: 1.4 }}
               />
 
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                <button style={btn} onClick={onGenerate}>Generate</button>
-                <button style={btn} onClick={() => onCopy(draft)}>{copied ? "Copied ✓" : "Copy"}</button>
-                <button style={btn} onClick={onSave}>Save</button>
-                <button style={btn} onClick={onEscalate}>They asked again</button>
+                <button className="btn" onClick={onGenerate}>Generate</button>
+                <button className="btn" onClick={() => onCopy(draft)}>Copy</button>
+
+                {/* Draft star */}
+                <button className="btn" onClick={onSaveFavorite} title="Save draft to Favorites">
+                  ★ Save to Favorites
+                </button>
+
+                <button className="btn" onClick={onSave}>Save</button>
+                <button className="btn" onClick={onEscalate}>They asked again</button>
+
                 <div style={{ fontSize: 12, opacity: 0.7 }}>{status}</div>
               </div>
 
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <button style={btn} onClick={() => onRewrite("noDetails")}>Shorter</button>
-                <button style={btn} onClick={() => onRewrite("firm")}>Firmer</button>
-                <button style={btn} onClick={() => onRewrite("professional")}>Work-safe</button>
-                <button style={btn} onClick={() => onRewrite("kind")}>Kinder</button>
-                <button style={btn} onClick={() => onRewrite("funny")}>Funnier</button>
-                <button style={btn} onClick={() => onRewrite("spicy")}>Spicier</button>
+                <button className="btn" onClick={() => onRewrite("noDetails")}>Shorter</button>
+                <button className="btn" onClick={() => onRewrite("firm")}>Firmer</button>
+                <button className="btn" onClick={() => onRewrite("professional")}>Work-safe</button>
+                <button className="btn" onClick={() => onRewrite("kind")}>Kinder</button>
+                <button className="btn" onClick={() => onRewrite("funny")}>Funnier</button>
+                <button className="btn" onClick={() => onRewrite("spicy")}>Spicier</button>
               </div>
             </div>
           </div>
         </div>
 
-        {/* RIGHT: Favorites + Saved */}
-        <div style={card}>
+        {/* RIGHT */}
+        <div className="card">
           <h2 style={{ marginTop: 0, marginBottom: 10, fontSize: 18 }}>Saved</h2>
 
           {favorites.length > 0 && (
@@ -235,11 +267,17 @@ export default function HomePage() {
               <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.8, marginBottom: 8 }}>Favorites</div>
               <div style={{ display: "grid", gap: 10, marginBottom: 14 }}>
                 {favorites.slice(0, 6).map((s, idx) => (
-                  <div key={`fav-${idx}`} style={{ padding: 12, borderRadius: 14, border: "1px solid rgba(0,0,0,0.08)", background: "rgba(255,255,255,0.8)" }}>
+                  <div
+                    key={`fav-${idx}`}
+                    style={{
+                      padding: 12,
+                      borderRadius: 14,
+                      border: "1px solid var(--border)",
+                      background: "var(--surface2)",
+                    }}
+                  >
                     <div style={{ marginBottom: 10 }}>{s.text}</div>
-                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                      <button style={btn} onClick={() => onCopy(s.text)}>Copy</button>
-                    </div>
+                    <button className="btn" onClick={() => onCopy(s.text)}>Copy</button>
                   </div>
                 ))}
               </div>
@@ -247,7 +285,7 @@ export default function HomePage() {
           )}
 
           {saved.length === 0 ? (
-            <p style={{ opacity: 0.65 }}>No saved excuses yet. Generate one, copy it, then hit Save.</p>
+            <p style={{ opacity: 0.65 }}>No saved excuses yet. Generate one, copy it, then Save.</p>
           ) : (
             <div style={{ display: "grid", gap: 10 }}>
               {saved.slice(0, 20).map((s, i) => (
@@ -256,14 +294,16 @@ export default function HomePage() {
                   style={{
                     padding: 12,
                     borderRadius: 14,
-                    border: "1px solid rgba(0,0,0,0.08)",
-                    background: "rgba(255,255,255,0.8)",
+                    border: "1px solid var(--border)",
+                    background: "var(--surface2)",
                   }}
                 >
                   <div style={{ marginBottom: 10 }}>{s.text}</div>
                   <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                    <button style={btn} onClick={() => onCopy(s.text)}>Copy</button>
-                    <button style={btn} onClick={() => toggleFav(i)}>{s.favorite ? "★ Favorited" : "☆ Favorite"}</button>
+                    <button className="btn" onClick={() => onCopy(s.text)}>Copy</button>
+                    <button className="btn" onClick={() => toggleFav(i)}>
+                      {s.favorite ? "★ Favorited" : "☆ Favorite"}
+                    </button>
                   </div>
                 </div>
               ))}
@@ -271,6 +311,9 @@ export default function HomePage() {
           )}
         </div>
       </section>
+
+      {/* Toast */}
+      <div className={`toast ${toast ? "show" : ""}`}>{toast}</div>
     </main>
   );
 }
