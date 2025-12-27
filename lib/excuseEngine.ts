@@ -1,4 +1,4 @@
-type Audience = "work" | "friends" | "family";
+export type Audience = "work" | "friends" | "family";
 
 const BANK = {
   work: {
@@ -84,11 +84,11 @@ const BOUNDARY_BANK: Record<Audience, string[]> = {
   ],
 };
 
-function pick<T>(arr: T[]) {
-  return arr[Math.floor(Math.random() * arr.length)];
+function pick<T>(arr: readonly T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)] as T;
 }
 
-function altTimes(date: Date) {
+function altTimes(date: Date): { ALT1: string; ALT2: string } {
   const d1 = new Date(date);
   d1.setDate(d1.getDate() + 2);
   const d2 = new Date(date);
@@ -100,7 +100,11 @@ function altTimes(date: Date) {
   return { ALT1: fmt(d1), ALT2: fmt(d2) };
 }
 
-export function generateExcuse(opts: { audience: Audience; funLevel: number; date: Date }) {
+export function generateExcuse(opts: {
+  audience: Audience;
+  funLevel: number;
+  date: Date;
+}): string {
   const { audience, funLevel, date } = opts;
   const bank = BANK[audience];
 
@@ -111,7 +115,7 @@ export function generateExcuse(opts: { audience: Audience; funLevel: number; dat
 
   const closerChance = funLevel === 0 ? 0.4 : funLevel === 1 ? 0.6 : funLevel === 2 ? 0.75 : 0.85;
 
-  let text = line1;
+  let text = line1 as string;
   if (Math.random() < closerChance) {
     const { ALT1, ALT2 } = altTimes(date);
     const closer = pick(bank.closer).replace("{ALT1}", ALT1).replace("{ALT2}", ALT2);
@@ -125,7 +129,7 @@ export function generateExcuse(opts: { audience: Audience; funLevel: number; dat
   return text;
 }
 
-export function generateBoundaryScript(audience: Audience, funLevel: number) {
+export function generateBoundaryScript(audience: Audience, funLevel: number): string {
   const line = pick(BOUNDARY_BANK[audience]);
   if (funLevel >= 3 && audience !== "work") return `${line} (No extra details.)`;
   return line;
@@ -135,7 +139,7 @@ export function rewriteVariant(
   text: string,
   variant: "shorter" | "firmer" | "workSafe" | "noDetails" | "reschedule",
   date: Date
-) {
+): string {
   const t = text.trim();
 
   if (variant === "shorter") {

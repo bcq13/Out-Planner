@@ -2,9 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getDeviceId } from "@/lib/deviceId";
-import { generateBoundaryScript, generateExcuse, rewriteVariant } from "@/lib/excuseEngine";
+import { type Audience, generateBoundaryScript, generateExcuse, rewriteVariant } from "@/lib/excuseEngine";
 
-type Audience = "work" | "friends" | "family";
 type EntryType = "excuse" | "boundary";
 
 type Entry = {
