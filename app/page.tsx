@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getDeviceId } from "@/lib/deviceId";
 import {
   QUESTION_LIBRARY,
@@ -64,8 +64,17 @@ export default function HomePage() {
   const [saved, setSaved] = useState<Saved[]>([]);
   const favorites = useMemo(() => saved.filter((s) => s.favorite), [saved]);
 
+  // Question library filters
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string>("All");
+
+  // Variation counters: forces new seeds each time
+  const generateCountRef = useRef(1);
+  const autoCountRef = useRef(1);
+
+  // Prevent auto-typing generation from overwriting user-edited draft
+  const draftEditedRef = useRef(false);
+  const lastAutoRequestRef = useRef<string>("");
 
   const filteredQuestions = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -85,7 +94,7 @@ export default function HomePage() {
       if (raw) setSaved(JSON.parse(raw));
     } catch {}
 
-    setDraft(generateExcuse("standup", true));
+    setDraft(generateExcuse("standup", true, Date.now()));
   }, []);
 
   useEffect(() => {
@@ -106,17 +115,26 @@ export default function HomePage() {
     window.setTimeout(() => setToast(""), 1100);
   }
 
-  function getGeneratedText() {
-    const hasRequest = normalize(request).length > 0;
-    if (hasRequest) return generateFromRequest({ mood, audience, request, makeThemThink });
-    return generateExcuse(mood, makeThemThink);
+  function seedBase(extra = 0) {
+    // changes every click / auto-gen, and also depends on request text
+    const req = normalize(request);
+    const base = Date.now() ^ (req.length * 131) ^ (extra * 9973);
+    return base;
   }
 
-  // Generate should ALWAYS produce a new response (avoid same text twice in a row)
+  function getGenerated(seed: number) {
+    const hasRequest = normalize(request).length > 0;
+    if (hasRequest) return generateFromRequest({ mood, audience, request, makeThemThink, seed });
+    return generateExcuse(mood, makeThemThink, seed);
+  }
+
   function onGenerate() {
     haptic();
     setEscalation(0);
-    const next = generateUnique(() => getGeneratedText(), draft);
+    draftEditedRef.current = false;
+
+    const n = generateCountRef.current++;
+    const next = generateUnique((s) => getGenerated(s), draft, seedBase(n));
     setDraft(next);
     setStatus("");
   }
@@ -125,7 +143,10 @@ export default function HomePage() {
     haptic();
     const nextLevel = escalation + 1;
     setEscalation(nextLevel);
-    const next = escalateFromRequest({ level: nextLevel, mood, audience, request, makeThemThink });
+    draftEditedRef.current = false;
+
+    const seed = seedBase(nextLevel + generateCountRef.current);
+    const next = escalateFromRequest({ level: nextLevel, mood, audience, request, makeThemThink, seed });
     setDraft(next);
     setStatus("");
   }
@@ -166,7 +187,10 @@ export default function HomePage() {
   function onRewrite(nextMood: Mood) {
     haptic();
     setMood(nextMood);
-    const next = rewriteVariant(draft, nextMood, audience, request, makeThemThink);
+    draftEditedRef.current = false;
+
+    const seed = seedBase(generateCountRef.current++);
+    const next = rewriteVariant(draft, nextMood, audience, request, makeThemThink, seed);
     setDraft(next);
     setStatus("");
   }
@@ -175,18 +199,59 @@ export default function HomePage() {
     haptic();
     setRequest(item.question);
     setEscalation(0);
+    draftEditedRef.current = false;
+
+    const n = generateCountRef.current++;
+    const seed = seedBase(n) ^ item.id.length * 123;
     const next = generateUnique(
-      () => generateFromRequest({ mood, audience, request: item.question, makeThemThink }),
-      draft
+      (s) => generateFromRequest({ mood, audience, request: item.question, makeThemThink, seed: s }),
+      draft,
+      seed
     );
     setDraft(next);
     showToast("Question loaded ✓");
   }
 
-  // Keep generated style consistent when toggling "make them think"
+  // ✅ Auto-generate while typing (debounced) — but DO NOT overwrite if user edited draft
+  useEffect(() => {
+    const req = normalize(request);
+
+    // only auto-gen when request is meaningful
+    if (req.length < 8) return;
+
+    // if user is editing the draft manually, don't overwrite
+    if (draftEditedRef.current) return;
+
+    // don’t re-auto-generate for identical request repeatedly
+    if (req === lastAutoRequestRef.current) return;
+
+    const t = window.setTimeout(() => {
+      // still safe checks at fire time
+      if (draftEditedRef.current) return;
+
+      const n = autoCountRef.current++;
+      const seed = seedBase(100000 + n);
+
+      const next = generateUnique(
+        (s) => generateFromRequest({ mood, audience, request: req, makeThemThink, seed: s }),
+        draft,
+        seed
+      );
+
+      setDraft(next);
+      lastAutoRequestRef.current = req;
+    }, 550); // debounce time
+
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [request]);
+
+  // Keep experience consistent when toggling “Make them think”
   useEffect(() => {
     if (!draft.trim()) return;
-    const next = generateUnique(() => getGeneratedText(), draft);
+    draftEditedRef.current = false;
+    const n = generateCountRef.current++;
+    const next = generateUnique((s) => getGenerated(s), draft, seedBase(n));
     setDraft(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [makeThemThink]);
@@ -211,7 +276,7 @@ export default function HomePage() {
         <div>
           <h1 style={{ fontSize: 32, margin: 0 }}>OutPlanner</h1>
           <p style={{ marginTop: 8, opacity: 0.72 }}>
-            Say no without guilt. Clean humor. Strong boundaries. One-tap copy.
+            200+ common asks → instant get-out replies. Clean humor, boundaries, and one-tap copy.
           </p>
         </div>
 
@@ -283,16 +348,29 @@ export default function HomePage() {
             </div>
 
             <div style={{ display: "grid", gap: 6 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85 }}>Paste what they asked (or pick from library)</div>
+              <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85 }}>
+                Paste what they asked (Enter = generate)
+              </div>
+
               <textarea
                 value={request}
-                onChange={(e) => setRequest(e.target.value)}
+                onChange={(e) => {
+                  setRequest(e.target.value);
+                }}
+                onKeyDown={(e) => {
+                  // Enter generates, Shift+Enter creates newline
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    onGenerate();
+                  }
+                }}
                 rows={isMobile ? 4 : 3}
                 placeholder='Example: “Can you cover my shift Friday?” or “Want to come over tonight?”'
                 style={{ width: "100%", borderRadius: 14, padding: 12, fontSize: 14 }}
               />
+
               <div style={{ fontSize: 12, opacity: 0.65 }}>
-                More specific request → more believable excuse.
+                Tip: If you start editing the excuse, auto-generate won’t overwrite it.
               </div>
             </div>
 
@@ -304,7 +382,10 @@ export default function HomePage() {
 
               <textarea
                 value={draft}
-                onChange={(e) => setDraft(e.target.value)}
+                onChange={(e) => {
+                  draftEditedRef.current = true;
+                  setDraft(e.target.value);
+                }}
                 rows={isMobile ? 7 : 5}
                 style={{ width: "100%", borderRadius: 16, padding: 14, fontSize: 16, lineHeight: 1.4 }}
               />
@@ -335,7 +416,9 @@ export default function HomePage() {
 
         {/* RIGHT: Library + Saved */}
         <div className="card">
-          <h2 style={{ marginTop: 0, marginBottom: 10, fontSize: 18 }}>Question Library</h2>
+          <h2 style={{ marginTop: 0, marginBottom: 10, fontSize: 18 }}>
+            Question Library <span style={{ fontSize: 12, opacity: 0.65 }}>({QUESTION_LIBRARY.length})</span>
+          </h2>
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
             <input
@@ -360,8 +443,8 @@ export default function HomePage() {
             </select>
           </div>
 
-          <div style={{ display: "grid", gap: 8, maxHeight: isMobile ? 260 : 320, overflow: "auto", paddingRight: 4 }}>
-            {filteredQuestions.slice(0, 40).map((item) => (
+          <div style={{ display: "grid", gap: 8, maxHeight: isMobile ? 280 : 360, overflow: "auto", paddingRight: 4 }}>
+            {filteredQuestions.slice(0, 60).map((item) => (
               <div
                 key={item.id}
                 style={{
