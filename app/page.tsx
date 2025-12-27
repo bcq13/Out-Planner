@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getDeviceId } from "@/lib/deviceId";
-import { type Audience, generateBoundaryScript, generateExcuse, rewriteVariant } from "@/lib/excuseEngine";
+import { generateBoundaryScript, generateExcuse, rewriteVariant } from "@/lib/excuseEngine";
 
+type Audience = "work" | "friends" | "family";
 type EntryType = "excuse" | "boundary";
 
 type Entry = {
@@ -30,7 +31,10 @@ function yyyy_mm_dd(d: Date) {
 }
 
 function monthName(i: number) {
-  return new Date(2025, i, 1).toLocaleDateString(undefined, { month: "long" });
+  return new Date(new Date().getFullYear(), i, 1).toLocaleDateString(
+    undefined,
+    { month: "long" }
+  );
 }
 
 const btnStyle: React.CSSProperties = {
@@ -94,12 +98,15 @@ export default function HomePage() {
     const arr: { month: number; days: Date[] }[] = [];
     for (let m = 0; m < 12; m++) {
       const days: Date[] = [];
-      const d = new Date(year, m, 1);
-      while (d.getMonth() === m) {
-        days.push(new Date(d));
-        d.setDate(d.getDate() + 1);
-      }
-      arr.push({ month: m, days });
+const d = new Date(year, m, 1);
+
+while (d.getMonth() === m) {
+  days.push(new Date(d));
+  d.setDate(d.getDate() + 1); // ✅ advance day to avoid infinite loop
+}
+
+arr.push({ month: m, days });
+
     }
     return arr;
   }, [year]);
