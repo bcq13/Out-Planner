@@ -2,12 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getDeviceId } from "@/lib/deviceId";
-import {
-  escalateFromRequest,
-  generateExcuse,
-  generateFromRequest,
-  rewriteVariant,
-} from "@/lib/excuseEngine";
+import { escalateFromRequest, generateExcuse, generateFromRequest, rewriteVariant } from "@/lib/excuseEngine";
 import type { Audience, Mood } from "@/lib/excuseEngine";
 
 type Saved = { text: string; favorite?: boolean; createdAt: number };
@@ -34,8 +29,23 @@ function useTheme() {
   return { theme, setTheme };
 }
 
+function useIsMobile(breakpoint = 860) {
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${breakpoint}px)`);
+    const apply = () => setIsMobile(mq.matches);
+    apply();
+    mq.addEventListener?.("change", apply);
+    return () => mq.removeEventListener?.("change", apply);
+  }, [breakpoint]);
+
+  return isMobile;
+}
+
 export default function HomePage() {
   const { theme, setTheme } = useTheme();
+  const isMobile = useIsMobile();
 
   const [deviceId, setDeviceId] = useState("");
 
@@ -49,7 +59,6 @@ export default function HomePage() {
   const [status, setStatus] = useState<string>("");
 
   const [escalation, setEscalation] = useState<number>(0);
-
   const [saved, setSaved] = useState<Saved[]>([]);
 
   // Load device + saved
@@ -86,7 +95,7 @@ export default function HomePage() {
     window.setTimeout(() => setToast(""), 1100);
   }
 
-  function makeDraft() {
+  function makeDraftText() {
     const hasRequest = normalize(request).length > 0;
     if (hasRequest) return generateFromRequest({ mood, audience, request, makeThemThink });
     return generateExcuse(mood, makeThemThink);
@@ -95,7 +104,7 @@ export default function HomePage() {
   function onGenerate() {
     haptic();
     setEscalation(0);
-    setDraft(makeDraft());
+    setDraft(makeDraftText());
     setStatus("");
   }
 
@@ -156,29 +165,32 @@ export default function HomePage() {
     setStatus("");
   }
 
-  // If user toggles make-them-think, refresh draft to reflect it (without changing their text if they edited)
+  // Regenerate when "Make them think" toggles (keeps the experience consistent)
   useEffect(() => {
-    // Only auto-refresh if the draft looks generated (simple heuristic: not empty and request-based changes are desired)
     if (!draft.trim()) return;
-    // Keep it predictable: regenerate on toggle only if request exists OR draft equals a known generated baseline size.
-    // We'll just regenerate to match toggle for now.
-    setDraft(makeDraft());
+    setDraft(makeDraftText());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [makeThemThink]);
 
+  const gridStyle: React.CSSProperties = isMobile
+    ? { display: "grid", gridTemplateColumns: "1fr", gap: 14, marginTop: 14 }
+    : { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginTop: 14 };
+
   return (
     <main
+      className={isMobile ? "mobile-pad-bottom" : ""}
       style={{
         maxWidth: 980,
         margin: "0 auto",
-        padding: 22,
+        padding: 18,
         fontFamily:
           '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", system-ui, Segoe UI, Roboto, Arial',
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 16 }}>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
         <div>
-          <h1 style={{ fontSize: 34, margin: 0 }}>OutPlanner</h1>
+          <h1 style={{ fontSize: 32, margin: 0 }}>OutPlanner</h1>
           <p style={{ marginTop: 8, opacity: 0.72 }}>
             Calm, confident “no.” With humor, boundaries, and one-tap copy.
           </p>
@@ -196,39 +208,42 @@ export default function HomePage() {
         </div>
       </div>
 
-      <section style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginTop: 14 }}>
+      <section style={gridStyle}>
         {/* LEFT */}
         <div className="card">
           <div style={{ display: "grid", gap: 10 }}>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
-              <div style={{ display: "grid", gap: 6 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85 }}>Select mood</div>
-                <select
-                  value={mood}
-                  onChange={(e) => setMood(e.target.value as Mood)}
-                  style={{ padding: "10px 14px", borderRadius: 12, minWidth: 240 }}
-                >
-                  <option value="kind">Kind</option>
-                  <option value="professional">Professional</option>
-                  <option value="funny">Funny</option>
-                  <option value="standup">Standup (observational)</option>
-                  <option value="spicy">Spicy</option>
-                  <option value="firm">Firm</option>
-                  <option value="noDetails">No details</option>
-                </select>
-              </div>
+            {/* Controls */}
+            <div style={{ display: "grid", gap: 10 }}>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+                <div style={{ display: "grid", gap: 6, flex: "1 1 240px" }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85 }}>Select mood</div>
+                  <select
+                    value={mood}
+                    onChange={(e) => setMood(e.target.value as Mood)}
+                    style={{ padding: "12px 14px", borderRadius: 12, width: "100%" }}
+                  >
+                    <option value="kind">Kind</option>
+                    <option value="professional">Professional</option>
+                    <option value="funny">Funny</option>
+                    <option value="standup">Standup (observational)</option>
+                    <option value="spicy">Spicy</option>
+                    <option value="firm">Firm</option>
+                    <option value="noDetails">No details</option>
+                  </select>
+                </div>
 
-              <div style={{ display: "grid", gap: 6 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85 }}>Audience</div>
-                <select
-                  value={audience}
-                  onChange={(e) => setAudience(e.target.value as Audience)}
-                  style={{ padding: "10px 14px", borderRadius: 12, minWidth: 200 }}
-                >
-                  <option value="friends">Friends</option>
-                  <option value="family">Family</option>
-                  <option value="work">Work</option>
-                </select>
+                <div style={{ display: "grid", gap: 6, flex: "1 1 200px" }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85 }}>Audience</div>
+                  <select
+                    value={audience}
+                    onChange={(e) => setAudience(e.target.value as Audience)}
+                    style={{ padding: "12px 14px", borderRadius: 12, width: "100%" }}
+                  >
+                    <option value="friends">Friends</option>
+                    <option value="family">Family</option>
+                    <option value="work">Work</option>
+                  </select>
+                </div>
               </div>
 
               <label
@@ -236,12 +251,13 @@ export default function HomePage() {
                   display: "flex",
                   alignItems: "center",
                   gap: 10,
-                  padding: "10px 14px",
+                  padding: "12px 14px",
                   borderRadius: 12,
                   border: "1px solid var(--border)",
                   background: "var(--surface2)",
                   cursor: "pointer",
                   userSelect: "none",
+                  width: "fit-content",
                 }}
                 title="Adds a short reflective closer (polite, but makes people think)"
               >
@@ -254,12 +270,13 @@ export default function HomePage() {
               </label>
             </div>
 
+            {/* Request box */}
             <div style={{ display: "grid", gap: 6 }}>
               <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85 }}>Paste what they asked (optional)</div>
               <textarea
                 value={request}
                 onChange={(e) => setRequest(e.target.value)}
-                rows={3}
+                rows={isMobile ? 4 : 3}
                 placeholder='Example: “Can you cover my shift Friday?” or “Want to come over tonight?”'
                 style={{ width: "100%", borderRadius: 14, padding: 12, fontSize: 14 }}
               />
@@ -268,28 +285,34 @@ export default function HomePage() {
               </div>
             </div>
 
+            {/* Draft */}
             <div style={{ display: "grid", gap: 8 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85 }}>Your excuse</div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85 }}>Your excuse</div>
+
+                {/* Upgrade #3: Star directly on draft */}
+                <button className="btn" onClick={onSaveFavorite} title="Save draft to Favorites">
+                  ★
+                </button>
+              </div>
+
               <textarea
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                rows={5}
+                rows={isMobile ? 7 : 5}
                 style={{ width: "100%", borderRadius: 16, padding: 14, fontSize: 16, lineHeight: 1.4 }}
               />
 
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                <button className="btn" onClick={onGenerate}>Generate</button>
-                <button className="btn" onClick={() => onCopy(draft)}>Copy</button>
-
-                <button className="btn" onClick={onSaveFavorite} title="Save draft to Favorites">
-                  ★ Save to Favorites
-                </button>
-
-                <button className="btn" onClick={onSave}>Save</button>
-                <button className="btn" onClick={onEscalate}>They asked again</button>
-
-                <div style={{ fontSize: 12, opacity: 0.7 }}>{status}</div>
-              </div>
+              {/* Desktop action row (mobile uses sticky bar) */}
+              {!isMobile && (
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                  <button className="btn" onClick={onGenerate}>Generate</button>
+                  <button className="btn" onClick={() => onCopy(draft)}>Copy</button>
+                  <button className="btn" onClick={onSave}>Save</button>
+                  <button className="btn" onClick={onEscalate}>They asked again</button>
+                  <div style={{ fontSize: 12, opacity: 0.7 }}>{status}</div>
+                </div>
+              )}
 
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                 <button className="btn" onClick={() => onRewrite("noDetails")}>Shorter</button>
@@ -357,6 +380,33 @@ export default function HomePage() {
           )}
         </div>
       </section>
+
+      {/* Upgrade #2: Sticky bottom Copy bar (mobile only) */}
+      {isMobile && (
+        <div className="mobile-copybar">
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <button className="btn" onClick={onGenerate} style={{ width: "100%", padding: "14px 14px" }}>
+              Generate
+            </button>
+            <button className="btn" onClick={() => onCopy(draft)} style={{ width: "100%", padding: "14px 14px" }}>
+              Copy
+            </button>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
+            <button className="btn" onClick={onSave} style={{ width: "100%", padding: "12px 14px" }}>
+              Save
+            </button>
+            <button className="btn" onClick={onEscalate} style={{ width: "100%", padding: "12px 14px" }}>
+              They asked again
+            </button>
+          </div>
+
+          {status ? (
+            <div style={{ fontSize: 12, opacity: 0.7, marginTop: 8, textAlign: "center" }}>{status}</div>
+          ) : null}
+        </div>
+      )}
 
       {/* Toast */}
       <div className={`toast ${toast ? "show" : ""}`}>{toast}</div>

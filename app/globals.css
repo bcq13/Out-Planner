@@ -1,18 +1,19 @@
 :root{
   --bg: #f5f5f7;
   --surface: rgba(255,255,255,0.72);
-  --surface2: rgba(255,255,255,0.86);
+  --surface2: rgba(255,255,255,0.88);
   --text: #111111;
   --muted: rgba(17,17,17,0.62);
   --border: rgba(0,0,0,0.10);
   --border2: rgba(0,0,0,0.14);
   --shadow: 0 10px 30px rgba(0,0,0,0.08);
+  --safeBottom: env(safe-area-inset-bottom, 0px);
 }
 
 :root[data-theme="dark"]{
   --bg: #0b0b0d;
   --surface: rgba(24,24,28,0.72);
-  --surface2: rgba(24,24,28,0.86);
+  --surface2: rgba(24,24,28,0.88);
   --text: #f5f5f7;
   --muted: rgba(245,245,247,0.62);
   --border: rgba(255,255,255,0.12);
@@ -42,18 +43,17 @@ input, textarea, select {
 
 textarea::placeholder { color: var(--muted); }
 
-/* Button micro “haptic” press */
+/* Button micro press */
 .btn {
   padding: 10px 14px;
   border-radius: 12px;
   border: 1px solid var(--border);
   background: var(--surface2);
   cursor: pointer;
-  transition: transform 120ms ease, filter 120ms ease, background 120ms ease;
+  transition: transform 120ms ease, filter 120ms ease;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
 }
-
 .btn:hover { filter: brightness(1.02); }
 .btn:active { transform: scale(0.97); }
 
@@ -71,7 +71,7 @@ textarea::placeholder { color: var(--muted); }
 .toast {
   position: fixed;
   left: 50%;
-  bottom: 18px;
+  bottom: calc(18px + var(--safeBottom));
   transform: translateX(-50%);
   background: rgba(20,20,22,0.82);
   color: #fff;
@@ -82,9 +82,31 @@ textarea::placeholder { color: var(--muted); }
   opacity: 0;
   pointer-events: none;
   transition: opacity 160ms ease, transform 160ms ease;
+  z-index: 50;
 }
-
 .toast.show {
   opacity: 1;
   transform: translateX(-50%) translateY(-6px);
+}
+
+/* Sticky mobile copy bar */
+.mobile-copybar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 10px 12px;
+  padding-bottom: calc(10px + var(--safeBottom));
+  background: rgba(255,255,255,0.68);
+  border-top: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+  z-index: 40;
+}
+:root[data-theme="dark"] .mobile-copybar {
+  background: rgba(18,18,20,0.68);
+}
+
+/* Make room for sticky bar on mobile */
+.mobile-pad-bottom {
+  padding-bottom: 90px;
 }
