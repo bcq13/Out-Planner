@@ -10,16 +10,28 @@ function supabaseOrError() {
 }
 
 export async function GET(req: Request) {
+  try {
   const { searchParams } = new URL(req.url);
   const device_id = searchParams.get("device_id");
   const year = searchParams.get("year");
 
   if (!device_id || !year) {
     return NextResponse.json({ error: "Missing device_id or year" }, { status: 400 });
+   } catch (e: any) {
+    return NextResponse.json(
+      { error: e?.message || "Unknown server error", details: String(e) },
+      { status: 500 }
+    );
   }
+}
+ }
 
   const s = supabaseOrError();
-  if ("error" in s) return NextResponse.json({ error: s.error }, { status: 500 });
+  if (error)
+  return NextResponse.json(
+    { error: error.message, code: (error as any).code, hint: (error as any).hint, details: error },
+    { status: 500 }
+  );
 
   const start = `${year}-01-01`;
   const end = `${year}-12-31`;
@@ -31,11 +43,16 @@ export async function GET(req: Request) {
     .gte("entry_date", start)
     .lte("entry_date", end);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error)
+  return NextResponse.json(
+    { error: error.message, code: (error as any).code, hint: (error as any).hint, details: error },
+    { status: 500 }
+  );
   return NextResponse.json({ data });
 }
 
 export async function POST(req: Request) {
+  try {
   const body = await req.json();
 
   const s = supabaseOrError();
@@ -47,6 +64,17 @@ export async function POST(req: Request) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ data });
+  if (error)
+  return NextResponse.json(
+    { error: error.message, code: (error as any).code, hint: (error as any).hint, details: error },
+    { status: 500 }
+  );
+  return NextResponse.json({ data });  } catch (e: any) {
+    return NextResponse.json(
+      { error: e?.message || "Unknown server error", details: String(e) },
+      { status: 500 }
+    );
+  }
+}
+
 }
