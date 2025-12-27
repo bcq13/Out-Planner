@@ -6,7 +6,7 @@ export default function HomePage() {
   const [text, setText] = useState("OutPlanner is starting…");
 
   useEffect(() => {
-    setText("OutPlanner is live and ready.");
+    setText("OutPlanner UI step is next.");
   }, []);
 
   return (
