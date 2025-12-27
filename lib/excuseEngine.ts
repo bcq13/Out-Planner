@@ -4,11 +4,56 @@ export type Mood =
   | "kind"
   | "professional"
   | "funny"
+  | "standup"
   | "spicy"
   | "firm"
   | "noDetails";
 
 const pick = <T,>(arr: T[]) => arr[Math.floor(Math.random() * arr.length)];
+
+function normalize(s: string) {
+  return (s || "").trim().replace(/\s+/g, " ");
+}
+
+function classifyRequest(req: string) {
+  const r = req.toLowerCase();
+  if (!r) return "general" as const;
+
+  if (/(babysit|watch (the )?kids|pickup|drop ?off|ride|carpool)/.test(r)) return "kids";
+  if (/(loan|borrow|money|venmo|cash|pay for|cover this)/.test(r)) return "money";
+  if (/(party|hang|dinner|lunch|coffee|drinks|come over|game night|invite)/.test(r)) return "social";
+  if (/(meeting|call|zoom|presentation|deadline|cover|shift|schedule|report|review)/.test(r)) return "work";
+  if (/(help move|moving|lift|truck|furniture|boxes)/.test(r)) return "moving";
+  if (/(volunteer|serve|church|team|sign up|help out)/.test(r)) return "volunteer";
+  return "general" as const;
+}
+
+function reasonByType(type: ReturnType<typeof classifyRequest>, audience: Audience) {
+  // Believable reasons that don’t require lies, illness, or drama.
+  const base = {
+    schedule: "my schedule’s already committed",
+    bandwidth: "I’m at capacity and need to protect my bandwidth",
+    family: "I’ve got a family commitment",
+    logistics: "it doesn’t work with my timing/logistics",
+  };
+
+  switch (type) {
+    case "work":
+      return audience === "work" ? "I’m already booked during that window" : base.schedule;
+    case "money":
+      return "I don’t lend money — it keeps relationships healthy";
+    case "moving":
+      return base.bandwidth;
+    case "kids":
+      return base.family;
+    case "volunteer":
+      return base.bandwidth;
+    case "social":
+      return "I’m keeping tonight low-key";
+    default:
+      return base.logistics;
+  }
+}
 
 const GENERIC: Record<Mood, string[]> = {
   kind: [
@@ -29,6 +74,19 @@ const GENERIC: Record<Mood, string[]> = {
     "Today is not a people day.",
     "My social battery is on 1%.",
   ],
+  // Clean, observational humor — “makes people think” vibe
+  standup: [
+    "I can’t, and it’s not personal — it’s math. I only have one body and it’s already booked.",
+    "I would, but I’m currently at maximum adult capacity. Any additional tasks will void the warranty.",
+    "I can’t — I’m trying this new thing where I don’t overcommit and then quietly resent everyone.",
+    "I’m going to pass. I’ve realized being available is how people accidentally assign you a second job.",
+    "I can’t, but I respect the confidence it took to ask.",
+    "I’m unavailable. My time isn’t unlimited — it just *looks* unlimited to other people.",
+    "I can’t. If I say yes to everything, I’m basically a subscription service.",
+    "Not today. I’m returning to my natural habitat: minding my own business.",
+    "I can’t — I’m in a committed relationship with my calendar.",
+    "I’m going to say no. I’m practicing boundaries like they’re a new hobby.",
+  ],
   spicy: ["No thanks.", "Hard pass.", "I’m opting out.", "Not happening."],
   firm: [
     "I’m not available.",
@@ -36,130 +94,86 @@ const GENERIC: Record<Mood, string[]> = {
     "I’m saying no.",
     "I won’t be doing that.",
   ],
-  noDetails: ["I can’t make it.", "I’m unavailable.", "No.", "Not this time."],
+  noDetails: ["I can’t.", "I’m unavailable.", "No.", "Not this time."],
 };
 
-const ESCALATION: (Mood | "boundary")[] = ["kind", "firm", "noDetails", "boundary"];
-
-const BOUNDARY_SCRIPTS = [
-  "I’ve already answered. Please stop asking.",
-  "I’m not going to discuss this further.",
-  "This conversation is closed.",
-  "I’m not changing my mind.",
-];
-
-function normalize(s: string) {
-  return (s || "").trim().replace(/\s+/g, " ");
-}
-
-function classifyRequest(req: string) {
-  const r = req.toLowerCase();
-  if (!r) return "general" as const;
-
-  if (/(babysit|watch (the )?kids|pickup|drop ?off|ride|carpool)/.test(r)) return "favor_kids";
-  if (/(loan|borrow|money|venmo|cash|pay for)/.test(r)) return "money";
-  if (/(party|hang|dinner|lunch|coffee|drinks|come over|game night)/.test(r)) return "social";
-  if (/(meeting|call|zoom|presentation|deadline|cover|shift|schedule)/.test(r)) return "work";
-  if (/(help move|move( )?ing|搬|lift|truck|furniture)/.test(r)) return "moving";
-  if (/(volunteer|serve|church|team|sign up)/.test(r)) return "volunteer";
-
-  return "general" as const;
-}
-
-function reasonByType(type: ReturnType<typeof classifyRequest>, audience: Audience) {
-  // short, believable reasons; avoids lying about illness/legal stuff
-  const common = {
-    schedule: "I already have something scheduled then.",
-    bandwidth: "I’m maxed out this week and need to protect my bandwidth.",
-    commitment: "I’ve got a prior commitment I can’t move.",
-    family: "I have a family commitment I need to handle.",
-    logistics: "That won’t work with my schedule/logistics.",
-  };
-
-  switch (type) {
-    case "work":
-      return audience === "work" ? common.schedule : common.commitment;
-    case "money":
-      return "I can’t lend money, but I hope you find a good solution.";
-    case "moving":
-      return common.bandwidth;
-    case "favor_kids":
-      return common.family;
-    case "volunteer":
-      return common.bandwidth;
-    case "social":
-      return common.schedule;
-    default:
-      return common.logistics;
-  }
+function leadInForRequest(req: string) {
+  const r = normalize(req);
+  if (!r) return "";
+  return `About “${r}”: `;
 }
 
 export function generateExcuse(mood: Mood) {
   return pick(GENERIC[mood]);
 }
 
-export function escalate(level: number) {
-  const step = ESCALATION[Math.min(level, ESCALATION.length - 1)];
-  if (step === "boundary") return pick(BOUNDARY_SCRIPTS);
-  return generateExcuse(step);
-}
-
-export function generateFromRequest(opts: {
-  mood: Mood;
-  audience: Audience;
-  request: string;
-}) {
+export function generateFromRequest(opts: { mood: Mood; audience: Audience; request: string }) {
   const request = normalize(opts.request);
   const type = classifyRequest(request);
   const reason = reasonByType(type, opts.audience);
+  const lead = leadInForRequest(request);
 
-  const leadIn = request ? `About "${request}": ` : "";
-  const softener =
-    opts.mood === "kind"
-      ? "Thanks for asking — "
-      : opts.mood === "professional"
-      ? ""
-      : opts.mood === "funny"
-      ? "I wish I could, but "
-      : "";
-
-  const moodTemplate: Record<Mood, string[]> = {
+  const templates: Record<Mood, string[]> = {
     kind: [
-      `${leadIn}${softener}I can’t, ${reason} I hope it goes great though.`,
-      `${leadIn}${softener}I’m going to pass — ${reason} Thanks for understanding.`,
+      `${lead}Thanks for asking — I can’t, because ${reason}. I hope it goes well though.`,
+      `${lead}I’m going to pass — ${reason}. Thanks for understanding.`,
     ],
     professional: [
-      `${leadIn}I’m unable to accommodate this due to a scheduling conflict.`,
-      `${leadIn}I’m not available for this at that time.`,
-      `${leadIn}I’m at capacity and won’t be able to take this on.`,
+      `${lead}I’m unable to accommodate this due to a scheduling conflict.`,
+      `${lead}I’m not available for this at that time.`,
+      `${lead}I’m at capacity and won’t be able to take this on.`,
     ],
     funny: [
-      `${leadIn}${softener}${reason} Also, my calendar is in a committed relationship with “no.”`,
-      `${leadIn}${softener}${reason} My future self asked me to say no.`,
+      `${lead}I can’t — ${reason}. My calendar is currently allergic to extra plans.`,
+      `${lead}I’m out — ${reason}. I’m trying to avoid becoming a full-time favor employee.`,
+    ],
+    standup: [
+      `${lead}I can’t — ${reason}. Also, I’ve noticed when you say yes once, people act like you signed a multi-year contract.`,
+      `${lead}I’m going to pass — ${reason}. I’m learning that “available” is how you get assigned bonus responsibilities.`,
+      `${lead}I can’t — ${reason}. I respect the ask, but I’m not accepting new side quests right now.`,
+      `${lead}Not today — ${reason}. If I say yes to everything, I’ll need to start billing hourly.`,
     ],
     spicy: [
-      `${leadIn}No — that doesn’t work for me.`,
-      `${leadIn}Not happening.`,
-      `${leadIn}No thanks.`,
+      `${lead}No — that doesn’t work for me.`,
+      `${lead}Not happening.`,
+      `${lead}No thanks.`,
     ],
     firm: [
-      `${leadIn}I can’t do that. ${reason}`,
-      `${leadIn}I’m not available. ${reason}`,
-      `${leadIn}That won’t work for me.`,
+      `${lead}I can’t do that — ${reason}.`,
+      `${lead}I’m not available — ${reason}.`,
+      `${lead}That won’t work for me.`,
     ],
     noDetails: [
-      `${leadIn}I can’t.`,
-      `${leadIn}I’m unavailable.`,
-      `${leadIn}No.`,
+      `${lead}I can’t.`,
+      `${lead}I’m unavailable.`,
+      `${lead}No.`,
     ],
   };
 
-  return pick(moodTemplate[opts.mood]);
+  return pick(templates[opts.mood]);
 }
 
-export function rewriteVariant(text: string, mood: Mood, audience: Audience, request: string) {
-  // re-generate using the same request context (best UX)
+// Contextual escalation: references the request, gets firmer each time.
+export function escalateFromRequest(opts: { level: number; mood: Mood; audience: Audience; request: string }) {
+  const request = normalize(opts.request);
+  const lead = leadInForRequest(request);
+  const type = classifyRequest(request);
+  const reason = reasonByType(type, opts.audience);
+
+  const level0 = generateFromRequest(opts); // first response is mood-based
+  const ladder = [
+    level0,
+    `${lead}I hear you — I’m still not able to. ${reason}.`,
+    `${lead}My answer is still no. Please respect that.`,
+    `${lead}I’m not discussing this further.`,
+    `${lead}I’ve said no. Please don’t ask again.`,
+  ];
+
+  const idx = Math.min(opts.level, ladder.length - 1);
+  return ladder[idx];
+}
+
+export function rewriteVariant(_text: string, mood: Mood, audience: Audience, request: string) {
   if (normalize(request)) return generateFromRequest({ mood, audience, request });
-  // fallback: rewrite as a fresh one in that mood
   return generateExcuse(mood);
 }
