@@ -8,6 +8,9 @@
   --border2: rgba(0,0,0,0.14);
   --shadow: 0 10px 30px rgba(0,0,0,0.08);
   --safeBottom: env(safe-area-inset-bottom, 0px);
+
+  --primary: #0a84ff;
+  --primaryText: #ffffff;
 }
 
 :root[data-theme="dark"]{
@@ -19,6 +22,9 @@
   --border: rgba(255,255,255,0.12);
   --border2: rgba(255,255,255,0.18);
   --shadow: 0 10px 30px rgba(0,0,0,0.40);
+
+  --primary: #0a84ff;
+  --primaryText: #ffffff;
 }
 
 html, body {
@@ -30,32 +36,36 @@ html, body {
 
 * { box-sizing: border-box; }
 
-button, select, textarea {
-  font: inherit;
-  color: var(--text);
-}
-
+button, select, textarea { font: inherit; color: var(--text); }
 input, textarea, select {
   background: var(--surface2);
   border: 1px solid var(--border2);
   outline: none;
 }
-
 textarea::placeholder { color: var(--muted); }
 
-/* Button micro press */
+/* Base button */
 .btn {
   padding: 10px 14px;
   border-radius: 12px;
   border: 1px solid var(--border);
   background: var(--surface2);
   cursor: pointer;
-  transition: transform 120ms ease, filter 120ms ease;
+  transition: transform 120ms ease, filter 120ms ease, background 120ms ease;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
 }
 .btn:hover { filter: brightness(1.02); }
 .btn:active { transform: scale(0.97); }
+
+/* Primary button (Generate) */
+.btnPrimary {
+  background: var(--primary);
+  color: var(--primaryText);
+  border: 1px solid rgba(255,255,255,0.14);
+  box-shadow: 0 10px 22px rgba(10,132,255,0.25);
+}
+.btnPrimary:hover { filter: brightness(1.05); }
 
 /* Card */
 .card {
@@ -82,7 +92,7 @@ textarea::placeholder { color: var(--muted); }
   opacity: 0;
   pointer-events: none;
   transition: opacity 160ms ease, transform 160ms ease;
-  z-index: 50;
+  z-index: 60;
 }
 .toast.show {
   opacity: 1;
@@ -100,13 +110,20 @@ textarea::placeholder { color: var(--muted); }
   background: rgba(255,255,255,0.68);
   border-top: 1px solid var(--border);
   backdrop-filter: blur(12px);
-  z-index: 40;
+  z-index: 50;
 }
 :root[data-theme="dark"] .mobile-copybar {
   background: rgba(18,18,20,0.68);
 }
+.mobile-pad-bottom { padding-bottom: 102px; }
 
-/* Make room for sticky bar on mobile */
-.mobile-pad-bottom {
-  padding-bottom: 90px;
+/* Small chips */
+.chip {
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  font-size: 12px;
+  cursor: pointer;
 }
+.chip:active { transform: scale(0.98); }

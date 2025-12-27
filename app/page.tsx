@@ -2,8 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getDeviceId } from "@/lib/deviceId";
-import { escalateFromRequest, generateExcuse, generateFromRequest, rewriteVariant } from "@/lib/excuseEngine";
-import type { Audience, Mood } from "@/lib/excuseEngine";
+import {
+  QUESTION_LIBRARY,
+  escalateFromRequest,
+  generateExcuse,
+  generateFromRequest,
+  generateUnique,
+  rewriteVariant,
+} from "@/lib/excuseEngine";
+import type { Audience, Mood, QuestionItem } from "@/lib/excuseEngine";
 
 type Saved = { text: string; favorite?: boolean; createdAt: number };
 
@@ -13,25 +20,21 @@ function normalize(s: string) {
 
 function useTheme() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
-
   useEffect(() => {
     const stored = localStorage.getItem("outplanner_theme") as "light" | "dark" | null;
     const systemDark = window.matchMedia?.("(prefers-color-scheme: dark)")?.matches;
     const initial = stored ?? (systemDark ? "dark" : "light");
     setTheme(initial);
   }, []);
-
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("outplanner_theme", theme);
   }, [theme]);
-
   return { theme, setTheme };
 }
 
 function useIsMobile(breakpoint = 860) {
   const [isMobile, setIsMobile] = useState(false);
-
   useEffect(() => {
     const mq = window.matchMedia(`(max-width: ${breakpoint}px)`);
     const apply = () => setIsMobile(mq.matches);
@@ -39,7 +42,6 @@ function useIsMobile(breakpoint = 860) {
     mq.addEventListener?.("change", apply);
     return () => mq.removeEventListener?.("change", apply);
   }, [breakpoint]);
-
   return isMobile;
 }
 
@@ -50,18 +52,30 @@ export default function HomePage() {
   const [deviceId, setDeviceId] = useState("");
 
   const [audience, setAudience] = useState<Audience>("friends");
-  const [mood, setMood] = useState<Mood>("kind");
-  const [makeThemThink, setMakeThemThink] = useState<boolean>(false);
-  const [request, setRequest] = useState<string>("");
+  const [mood, setMood] = useState<Mood>("standup");
+  const [makeThemThink, setMakeThemThink] = useState<boolean>(true);
 
+  const [request, setRequest] = useState<string>("");
   const [draft, setDraft] = useState<string>("");
   const [toast, setToast] = useState<string>("");
   const [status, setStatus] = useState<string>("");
-
   const [escalation, setEscalation] = useState<number>(0);
-  const [saved, setSaved] = useState<Saved[]>([]);
 
-  // Load device + saved
+  const [saved, setSaved] = useState<Saved[]>([]);
+  const favorites = useMemo(() => saved.filter((s) => s.favorite), [saved]);
+
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState<string>("All");
+
+  const filteredQuestions = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return QUESTION_LIBRARY.filter((item) => {
+      const okCat = category === "All" ? true : item.category === category;
+      const okQ = !q ? true : item.question.toLowerCase().includes(q);
+      return okCat && okQ;
+    });
+  }, [query, category]);
+
   useEffect(() => {
     const id = getDeviceId();
     setDeviceId(id);
@@ -71,18 +85,15 @@ export default function HomePage() {
       if (raw) setSaved(JSON.parse(raw));
     } catch {}
 
-    setDraft(generateExcuse("kind", false));
+    setDraft(generateExcuse("standup", true));
   }, []);
 
-  // Persist saved
   useEffect(() => {
     if (!deviceId) return;
     try {
       localStorage.setItem(`outplanner_saved_${deviceId}`, JSON.stringify(saved));
     } catch {}
   }, [saved, deviceId]);
-
-  const favorites = useMemo(() => saved.filter((s) => s.favorite), [saved]);
 
   function haptic() {
     try {
@@ -95,32 +106,27 @@ export default function HomePage() {
     window.setTimeout(() => setToast(""), 1100);
   }
 
-  function makeDraftText() {
+  function getGeneratedText() {
     const hasRequest = normalize(request).length > 0;
     if (hasRequest) return generateFromRequest({ mood, audience, request, makeThemThink });
     return generateExcuse(mood, makeThemThink);
   }
 
+  // Generate should ALWAYS produce a new response (avoid same text twice in a row)
   function onGenerate() {
     haptic();
     setEscalation(0);
-    setDraft(makeDraftText());
+    const next = generateUnique(() => getGeneratedText(), draft);
+    setDraft(next);
     setStatus("");
   }
 
   function onEscalate() {
     haptic();
-    const next = escalation + 1;
-    setEscalation(next);
-    setDraft(
-      escalateFromRequest({
-        level: next,
-        mood,
-        audience,
-        request,
-        makeThemThink,
-      })
-    );
+    const nextLevel = escalation + 1;
+    setEscalation(nextLevel);
+    const next = escalateFromRequest({ level: nextLevel, mood, audience, request, makeThemThink });
+    setDraft(next);
     setStatus("");
   }
 
@@ -137,7 +143,6 @@ export default function HomePage() {
   function saveText(text: string, favorite = false) {
     const t = normalize(text);
     if (!t) return;
-
     setSaved((prev) => [{ text: t, favorite, createdAt: Date.now() }, ...prev]);
     setStatus(favorite ? "Saved to Favorites ✓" : "Saved ✓");
     window.setTimeout(() => setStatus(""), 1200);
@@ -148,7 +153,7 @@ export default function HomePage() {
     saveText(draft, false);
   }
 
-  function onSaveFavorite() {
+  function onStarDraft() {
     haptic();
     saveText(draft, true);
   }
@@ -161,14 +166,28 @@ export default function HomePage() {
   function onRewrite(nextMood: Mood) {
     haptic();
     setMood(nextMood);
-    setDraft((prev) => rewriteVariant(prev, nextMood, audience, request, makeThemThink));
+    const next = rewriteVariant(draft, nextMood, audience, request, makeThemThink);
+    setDraft(next);
     setStatus("");
   }
 
-  // Regenerate when "Make them think" toggles (keeps the experience consistent)
+  function useQuestion(item: QuestionItem) {
+    haptic();
+    setRequest(item.question);
+    setEscalation(0);
+    const next = generateUnique(
+      () => generateFromRequest({ mood, audience, request: item.question, makeThemThink }),
+      draft
+    );
+    setDraft(next);
+    showToast("Question loaded ✓");
+  }
+
+  // Keep generated style consistent when toggling "make them think"
   useEffect(() => {
     if (!draft.trim()) return;
-    setDraft(makeDraftText());
+    const next = generateUnique(() => getGeneratedText(), draft);
+    setDraft(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [makeThemThink]);
 
@@ -192,16 +211,12 @@ export default function HomePage() {
         <div>
           <h1 style={{ fontSize: 32, margin: 0 }}>OutPlanner</h1>
           <p style={{ marginTop: 8, opacity: 0.72 }}>
-            Calm, confident “no.” With humor, boundaries, and one-tap copy.
+            Say no without guilt. Clean humor. Strong boundaries. One-tap copy.
           </p>
         </div>
 
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <button
-            className="btn"
-            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            title="Toggle dark mode"
-          >
+          <button className="btn" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} title="Toggle dark mode">
             {theme === "dark" ? "☾ Dark" : "☀︎ Light"}
           </button>
           <div style={{ fontSize: 12, opacity: 0.65 }}>device {deviceId ? "linked" : "…"}</div>
@@ -209,41 +224,38 @@ export default function HomePage() {
       </div>
 
       <section style={gridStyle}>
-        {/* LEFT */}
+        {/* LEFT: Composer */}
         <div className="card">
-          <div style={{ display: "grid", gap: 10 }}>
-            {/* Controls */}
-            <div style={{ display: "grid", gap: 10 }}>
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
-                <div style={{ display: "grid", gap: 6, flex: "1 1 240px" }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85 }}>Select mood</div>
-                  <select
-                    value={mood}
-                    onChange={(e) => setMood(e.target.value as Mood)}
-                    style={{ padding: "12px 14px", borderRadius: 12, width: "100%" }}
-                  >
-                    <option value="kind">Kind</option>
-                    <option value="professional">Professional</option>
-                    <option value="funny">Funny</option>
-                    <option value="standup">Standup (observational)</option>
-                    <option value="spicy">Spicy</option>
-                    <option value="firm">Firm</option>
-                    <option value="noDetails">No details</option>
-                  </select>
-                </div>
+          <div style={{ display: "grid", gap: 12 }}>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+              <div style={{ display: "grid", gap: 6, flex: "1 1 240px" }}>
+                <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85 }}>Select mood</div>
+                <select
+                  value={mood}
+                  onChange={(e) => setMood(e.target.value as Mood)}
+                  style={{ padding: "12px 14px", borderRadius: 12, width: "100%" }}
+                >
+                  <option value="kind">Kind</option>
+                  <option value="professional">Professional</option>
+                  <option value="funny">Funny</option>
+                  <option value="standup">Standup (observational)</option>
+                  <option value="spicy">Spicy</option>
+                  <option value="firm">Firm</option>
+                  <option value="noDetails">No details</option>
+                </select>
+              </div>
 
-                <div style={{ display: "grid", gap: 6, flex: "1 1 200px" }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85 }}>Audience</div>
-                  <select
-                    value={audience}
-                    onChange={(e) => setAudience(e.target.value as Audience)}
-                    style={{ padding: "12px 14px", borderRadius: 12, width: "100%" }}
-                  >
-                    <option value="friends">Friends</option>
-                    <option value="family">Family</option>
-                    <option value="work">Work</option>
-                  </select>
-                </div>
+              <div style={{ display: "grid", gap: 6, flex: "1 1 200px" }}>
+                <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85 }}>Audience</div>
+                <select
+                  value={audience}
+                  onChange={(e) => setAudience(e.target.value as Audience)}
+                  style={{ padding: "12px 14px", borderRadius: 12, width: "100%" }}
+                >
+                  <option value="friends">Friends</option>
+                  <option value="family">Family</option>
+                  <option value="work">Work</option>
+                </select>
               </div>
 
               <label
@@ -270,9 +282,8 @@ export default function HomePage() {
               </label>
             </div>
 
-            {/* Request box */}
             <div style={{ display: "grid", gap: 6 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85 }}>Paste what they asked (optional)</div>
+              <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85 }}>Paste what they asked (or pick from library)</div>
               <textarea
                 value={request}
                 onChange={(e) => setRequest(e.target.value)}
@@ -285,15 +296,10 @@ export default function HomePage() {
               </div>
             </div>
 
-            {/* Draft */}
             <div style={{ display: "grid", gap: 8 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85 }}>Your excuse</div>
-
-                {/* Upgrade #3: Star directly on draft */}
-                <button className="btn" onClick={onSaveFavorite} title="Save draft to Favorites">
-                  ★
-                </button>
+                <button className="btn" onClick={onStarDraft} title="Favorite this draft">★</button>
               </div>
 
               <textarea
@@ -303,10 +309,10 @@ export default function HomePage() {
                 style={{ width: "100%", borderRadius: 16, padding: 14, fontSize: 16, lineHeight: 1.4 }}
               />
 
-              {/* Desktop action row (mobile uses sticky bar) */}
+              {/* Desktop action row */}
               {!isMobile && (
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                  <button className="btn" onClick={onGenerate}>Generate</button>
+                  <button className="btn btnPrimary" onClick={onGenerate}>Generate</button>
                   <button className="btn" onClick={() => onCopy(draft)}>Copy</button>
                   <button className="btn" onClick={onSave}>Save</button>
                   <button className="btn" onClick={onEscalate}>They asked again</button>
@@ -327,15 +333,63 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* RIGHT */}
+        {/* RIGHT: Library + Saved */}
         <div className="card">
-          <h2 style={{ marginTop: 0, marginBottom: 10, fontSize: 18 }}>Saved</h2>
+          <h2 style={{ marginTop: 0, marginBottom: 10, fontSize: 18 }}>Question Library</h2>
+
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search questions…"
+              style={{ flex: "1 1 240px", padding: "12px 14px", borderRadius: 12 }}
+            />
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              style={{ padding: "12px 14px", borderRadius: 12 }}
+            >
+              <option value="All">All</option>
+              <option value="Work">Work</option>
+              <option value="Social">Social</option>
+              <option value="Family">Family</option>
+              <option value="Money">Money</option>
+              <option value="Church/Volunteer">Church/Volunteer</option>
+              <option value="Moving/Errands">Moving/Errands</option>
+              <option value="Random">Random</option>
+            </select>
+          </div>
+
+          <div style={{ display: "grid", gap: 8, maxHeight: isMobile ? 260 : 320, overflow: "auto", paddingRight: 4 }}>
+            {filteredQuestions.slice(0, 40).map((item) => (
+              <div
+                key={item.id}
+                style={{
+                  border: "1px solid var(--border)",
+                  borderRadius: 14,
+                  background: "var(--surface2)",
+                  padding: 12,
+                }}
+              >
+                <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 6 }}>{item.category}</div>
+                <div style={{ marginBottom: 10 }}>{item.question}</div>
+                <button className="btn" onClick={() => useQuestion(item)}>Use this</button>
+              </div>
+            ))}
+            {filteredQuestions.length === 0 && (
+              <div style={{ opacity: 0.7 }}>No matches. Try a different search.</div>
+            )}
+          </div>
+
+          <hr style={{ border: "none", borderTop: "1px solid var(--border)", margin: "16px 0" }} />
+
+          <h2 style={{ margin: 0, marginBottom: 10, fontSize: 18 }}>Saved</h2>
 
           {favorites.length > 0 && (
             <>
               <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.8, marginBottom: 8 }}>Favorites</div>
               <div style={{ display: "grid", gap: 10, marginBottom: 14 }}>
-                {favorites.slice(0, 6).map((s, idx) => (
+                {favorites.slice(0, 4).map((s, idx) => (
                   <div
                     key={`fav-${idx}`}
                     style={{
@@ -357,7 +411,7 @@ export default function HomePage() {
             <p style={{ opacity: 0.65 }}>No saved excuses yet. Generate one, copy it, then Save.</p>
           ) : (
             <div style={{ display: "grid", gap: 10 }}>
-              {saved.slice(0, 20).map((s, i) => (
+              {saved.slice(0, 10).map((s, i) => (
                 <div
                   key={s.createdAt}
                   style={{
@@ -381,18 +435,17 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Upgrade #2: Sticky bottom Copy bar (mobile only) */}
+      {/* Mobile sticky bar */}
       {isMobile && (
         <div className="mobile-copybar">
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <button className="btn" onClick={onGenerate} style={{ width: "100%", padding: "14px 14px" }}>
+            <button className="btn btnPrimary" onClick={onGenerate} style={{ width: "100%", padding: "14px 14px" }}>
               Generate
             </button>
             <button className="btn" onClick={() => onCopy(draft)} style={{ width: "100%", padding: "14px 14px" }}>
               Copy
             </button>
           </div>
-
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
             <button className="btn" onClick={onSave} style={{ width: "100%", padding: "12px 14px" }}>
               Save
@@ -401,14 +454,12 @@ export default function HomePage() {
               They asked again
             </button>
           </div>
-
           {status ? (
             <div style={{ fontSize: 12, opacity: 0.7, marginTop: 8, textAlign: "center" }}>{status}</div>
           ) : null}
         </div>
       )}
 
-      {/* Toast */}
       <div className={`toast ${toast ? "show" : ""}`}>{toast}</div>
     </main>
   );

@@ -9,6 +9,19 @@ export type Mood =
   | "firm"
   | "noDetails";
 
+export type QuestionItem = {
+  id: string;
+  category:
+    | "Work"
+    | "Social"
+    | "Family"
+    | "Money"
+    | "Church/Volunteer"
+    | "Moving/Errands"
+    | "Random";
+  question: string;
+};
+
 const pick = <T,>(arr: T[]) => arr[Math.floor(Math.random() * arr.length)];
 
 function normalize(s: string) {
@@ -30,7 +43,6 @@ function classifyRequest(req: string) {
 }
 
 function reasonByType(type: ReturnType<typeof classifyRequest>, audience: Audience) {
-  // Believable reasons that don't require lies or medical claims.
   const base = {
     schedule: "my schedule’s already committed",
     bandwidth: "I’m at capacity and need to protect my bandwidth",
@@ -62,10 +74,7 @@ function leadInForRequest(req: string) {
   return `About “${r}”: `;
 }
 
-/**
- * Optional reflective closers (the "make them think" mode)
- * These are intentionally short, human, and not preachy.
- */
+/** “Make them think” closers */
 const PEOPLE_ASK_TOO_MUCH: Record<Mood, string[]> = {
   kind: [
     "I’m trying to keep my commitments realistic.",
@@ -87,22 +96,17 @@ const PEOPLE_ASK_TOO_MUCH: Record<Mood, string[]> = {
     "It’s wild how ‘Can you help?’ sometimes means ‘Can you adopt my responsibilities?’",
     "People really will ask for a mile when you once offered an inch—respectfully, I’m not a highway.",
   ],
-  spicy: [
-    "I’m not available for that.",
-    "That’s not going to work.",
-    "No.",
-  ],
-  firm: [
-    "I’m not changing my answer.",
-    "Please respect my decision.",
-    "My answer is no.",
-  ],
-  noDetails: [
-    "No.",
-    "I can’t.",
-    "Not happening.",
-  ],
+  spicy: ["I’m not available for that.", "That’s not going to work.", "No."],
+  firm: ["I’m not changing my answer.", "Please respect my decision.", "My answer is no."],
+  noDetails: ["No.", "I can’t.", "Not happening."],
 };
+
+function maybeAddCloser(text: string, mood: Mood, makeThemThink: boolean) {
+  if (!makeThemThink) return text;
+  if (mood === "noDetails") return text;
+  const closer = pick(PEOPLE_ASK_TOO_MUCH[mood]);
+  return `${text} ${closer}`;
+}
 
 const GENERIC: Record<Mood, string[]> = {
   kind: [
@@ -132,25 +136,9 @@ const GENERIC: Record<Mood, string[]> = {
     "I’m unavailable. My time isn’t unlimited — it just looks unlimited to other people.",
   ],
   spicy: ["No thanks.", "Hard pass.", "I’m opting out.", "Not happening."],
-  firm: [
-    "I’m not available.",
-    "That doesn’t work for me.",
-    "I’m saying no.",
-    "I won’t be doing that.",
-  ],
+  firm: ["I’m not available.", "That doesn’t work for me.", "I’m saying no.", "I won’t be doing that."],
   noDetails: ["I can’t.", "I’m unavailable.", "No.", "Not this time."],
 };
-
-function maybeAddCloser(text: string, mood: Mood, makeThemThink: boolean) {
-  if (!makeThemThink) return text;
-
-  // Keep "No details" truly no-details.
-  if (mood === "noDetails") return text;
-
-  // Don't double-close if user already has punctuation / long message; just append short.
-  const closer = pick(PEOPLE_ASK_TOO_MUCH[mood]);
-  return `${text} ${closer}`;
-}
 
 export function generateExcuse(mood: Mood, makeThemThink = false) {
   const base = pick(GENERIC[mood]);
@@ -198,18 +186,14 @@ export function generateFromRequest(opts: {
       `${lead}I’m not available — ${reason}.`,
       `${lead}That won’t work for me.`,
     ],
-    noDetails: [
-      `${lead}I can’t.`,
-      `${lead}I’m unavailable.`,
-      `${lead}No.`,
-    ],
+    noDetails: [`${lead}I can’t.`, `${lead}I’m unavailable.`, `${lead}No.`],
   };
 
   const base = pick(templates[opts.mood]);
   return maybeAddCloser(base, opts.mood, !!opts.makeThemThink);
 }
 
-// Contextual escalation: stays on-topic and gets firmer each time.
+/** Contextual escalation */
 export function escalateFromRequest(opts: {
   level: number;
   mood: Mood;
@@ -241,6 +225,7 @@ export function escalateFromRequest(opts: {
   return ladder[idx];
 }
 
+/** Rewrite variants: just regenerate in the target mood */
 export function rewriteVariant(
   _text: string,
   mood: Mood,
@@ -251,3 +236,57 @@ export function rewriteVariant(
   if (normalize(request)) return generateFromRequest({ mood, audience, request, makeThemThink });
   return generateExcuse(mood, makeThemThink);
 }
+
+/** Guarantee "new response" by retrying a few times if we get the same output */
+export function generateUnique(getText: () => string, last: string, maxTries = 8) {
+  const lastNorm = normalize(last);
+  for (let i = 0; i < maxTries; i++) {
+    const next = getText();
+    if (normalize(next) !== lastNorm) return next;
+  }
+  return getText();
+}
+
+/** Question Library (long list) */
+export const QUESTION_LIBRARY: QuestionItem[] = [
+  // Work
+  { id: "w1", category: "Work", question: "Can you hop on a quick call right now?" },
+  { id: "w2", category: "Work", question: "Can you cover my shift Friday?" },
+  { id: "w3", category: "Work", question: "Can you take this task too? It’s small." },
+  { id: "w4", category: "Work", question: "Can you stay late today?" },
+  { id: "w5", category: "Work", question: "Can you join this meeting last minute?" },
+  { id: "w6", category: "Work", question: "Can you review this tonight?" },
+
+  // Social
+  { id: "s1", category: "Social", question: "Want to come over tonight?" },
+  { id: "s2", category: "Social", question: "Can you make it to brunch tomorrow?" },
+  { id: "s3", category: "Social", question: "Can you come to my party this weekend?" },
+  { id: "s4", category: "Social", question: "Can you go out after work?" },
+  { id: "s5", category: "Social", question: "Can you drive us?" },
+
+  // Family
+  { id: "f1", category: "Family", question: "Can you babysit this weekend?" },
+  { id: "f2", category: "Family", question: "Can you come help with something today?" },
+  { id: "f3", category: "Family", question: "Can you pick up the kids?" },
+  { id: "f4", category: "Family", question: "Can you come by for dinner?" },
+
+  // Money
+  { id: "m1", category: "Money", question: "Can you loan me some money?" },
+  { id: "m2", category: "Money", question: "Can you spot me until payday?" },
+  { id: "m3", category: "Money", question: "Can you co-sign for me?" },
+
+  // Church/Volunteer
+  { id: "c1", category: "Church/Volunteer", question: "Can you volunteer this Sunday?" },
+  { id: "c2", category: "Church/Volunteer", question: "Can you lead this thing? You’d be great." },
+  { id: "c3", category: "Church/Volunteer", question: "Can you help with setup and teardown?" },
+
+  // Moving/Errands
+  { id: "e1", category: "Moving/Errands", question: "Can you help me move this weekend?" },
+  { id: "e2", category: "Moving/Errands", question: "Can you pick something up for me?" },
+  { id: "e3", category: "Moving/Errands", question: "Can you lend me your truck?" },
+
+  // Random
+  { id: "r1", category: "Random", question: "Can you do me a huge favor… real quick?" },
+  { id: "r2", category: "Random", question: "Can you come through for me?" },
+  { id: "r3", category: "Random", question: "Can I ask you something kinda big?" },
+];
