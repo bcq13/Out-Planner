@@ -1,18 +1,355 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { getDeviceId } from "@/lib/deviceId";
+import { generateBoundaryScript, generateExcuse, rewriteVariant } from "@/lib/excuseEngine";
+
+type Audience = "work" | "friends" | "family";
+type EntryType = "excuse" | "boundary";
+
+type Entry = {
+  id: string;
+  device_id: string;
+  entry_date: string; // YYYY-MM-DD
+  audience: Audience;
+  fun_level: number;
+  excuse_text: string;
+  entry_type: EntryType;
+};
+
+type ProTip = {
+  id: string;
+  title: string;
+  body: string;
+};
+
+function yyyy_mm_dd(d: Date) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function monthName(i: number) {
+  return new Date(2025, i, 1).toLocaleDateString(undefined, { month: "long" });
+}
+
+const btnStyle: React.CSSProperties = {
+  padding: 10,
+  borderRadius: 10,
+  border: "1px solid #111",
+  cursor: "pointer",
+  background: "white",
+};
 
 export default function HomePage() {
-  const [text, setText] = useState("OutPlanner is starting…");
+  const year = new Date().getFullYear();
+
+  const [deviceId, setDeviceId] = useState<string>("");
+  const [entries, setEntries] = useState<Record<string, Entry>>({});
+  const [tips, setTips] = useState<ProTip[]>([]);
+
+  const [selectedDate, setSelectedDate] = useState<string>(`${year}-01-01`);
+  const [audience, setAudience] = useState<Audience>("friends");
+  const [funLevel, setFunLevel] = useState<number>(2);
+
+  const [pushyMode, setPushyMode] = useState<boolean>(false);
+  const [draft, setDraft] = useState<string>("");
 
   useEffect(() => {
-    setText("OutPlanner UI step is next.");
+    const id = getDeviceId();
+    setDeviceId(id);
   }, []);
 
+  async function loadYear(id: string) {
+    const res = await fetch(`/api/entries?device_id=${encodeURIComponent(id)}&year=${year}`);
+    const json = await res.json();
+    if (!json.data) return;
+
+    const map: Record<string, Entry> = {};
+    for (const e of json.data as Entry[]) map[e.entry_date] = e;
+    setEntries(map);
+  }
+
+  useEffect(() => {
+    if (!deviceId) return;
+    loadYear(deviceId);
+  }, [deviceId]);
+
+  useEffect(() => {
+    async function loadTips() {
+      const res = await fetch("/api/tips");
+      const json = await res.json();
+      if (json.data) setTips(json.data);
+    }
+    loadTips();
+  }, []);
+
+  function tipOfDay(dateStr: string) {
+    if (!tips.length) return null;
+    const n = Number(dateStr.replaceAll("-", ""));
+    return tips[n % tips.length];
+  }
+
+  const months = useMemo(() => {
+    const arr: { month: number; days: Date[] }[] = [];
+    for (let m = 0; m < 12; m++) {
+      const days: Date[] = [];
+      const d = new Date(year, m, 1);
+      while (d.getMonth() === m) {
+        days.push(new Date(d));
+        d.setDate(d.getDate() + 1);
+      }
+      arr.push({ month: m, days });
+    }
+    return arr;
+  }, [year]);
+
+  useEffect(() => {
+    const existing = entries[selectedDate];
+    const date = new Date(`${selectedDate}T00:00:00`);
+
+    if (existing) {
+      setAudience(existing.audience);
+      setFunLevel(existing.fun_level);
+      setPushyMode(existing.entry_type === "boundary");
+      setDraft(existing.excuse_text);
+      return;
+    }
+
+    const text = pushyMode
+      ? generateBoundaryScript(audience, funLevel)
+      : generateExcuse({ audience, funLevel, date });
+
+    setDraft(text);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate, entries]);
+
+  function onGenerate() {
+    const date = new Date(`${selectedDate}T00:00:00`);
+    const text = pushyMode
+      ? generateBoundaryScript(audience, funLevel)
+      : generateExcuse({ audience, funLevel, date });
+    setDraft(text);
+  }
+
+  function onRewrite(kind: "shorter" | "firmer" | "workSafe" | "noDetails" | "reschedule") {
+    const date = new Date(`${selectedDate}T00:00:00`);
+    setDraft((prev) => rewriteVariant(prev, kind, date));
+  }
+
+  async function onSave() {
+    if (!deviceId) return;
+    if (!draft.trim()) return;
+
+    const res = await fetch("/api/entries", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        device_id: deviceId,
+        entry_date: selectedDate,
+        audience,
+        fun_level: funLevel,
+        excuse_text: draft.trim(),
+        entry_type: pushyMode ? "boundary" : "excuse",
+      }),
+    });
+
+    const json = await res.json();
+    if (json.error) {
+      alert(json.error);
+      return;
+    }
+    await loadYear(deviceId);
+    alert("Saved!");
+  }
+
+  async function copyToClipboard() {
+    await navigator.clipboard.writeText(draft);
+    alert("Copied!");
+  }
+
+  const selectedEntry = entries[selectedDate];
+  const tip = tipOfDay(selectedDate);
+
   return (
-    <main style={{ maxWidth: 900, margin: "0 auto", padding: 24 }}>
-      <h1>OutPlanner</h1>
-      <p>{text}</p>
+    <main style={{ maxWidth: 1120, margin: "0 auto", padding: 20, fontFamily: "system-ui" }}>
+      <h1 style={{ marginBottom: 6 }}>OutPlanner</h1>
+      <p style={{ marginTop: 0, opacity: 0.75 }}>
+        Daily excuses + pushy-people pro tips. Funny, believable, and boundary-friendly.
+      </p>
+
+      <section style={{ display: "grid", gridTemplateColumns: "1.25fr 0.75fr", gap: 16 }}>
+        {/* Calendar */}
+        <div style={{ border: "1px solid #ddd", borderRadius: 12, padding: 12 }}>
+          <h2 style={{ marginTop: 0 }}>{year} Daily Calendar</h2>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+            {months.map(({ month, days }) => (
+              <div key={month} style={{ border: "1px solid #eee", borderRadius: 10, padding: 10 }}>
+                <div style={{ fontWeight: 700, marginBottom: 6 }}>{monthName(month)}</div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
+                  {days.map((d) => {
+                    const key = yyyy_mm_dd(d);
+                    const has = !!entries[key];
+                    const isSel = key === selectedDate;
+
+                    return (
+                      <button
+                        key={key}
+                        onClick={() => setSelectedDate(key)}
+                        title={has ? entries[key].excuse_text : "Auto-generated draft"}
+                        style={{
+                          padding: "6px 0",
+                          borderRadius: 8,
+                          border: isSel ? "2px solid #111" : "1px solid #ddd",
+                          background: has ? "#f3f3f3" : "white",
+                          cursor: "pointer",
+                          fontSize: 12,
+                        }}
+                      >
+                        {d.getDate()}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Generator */}
+        <div style={{ border: "1px solid #ddd", borderRadius: 12, padding: 12 }}>
+          <h2 style={{ marginTop: 0 }}>Generate & Save</h2>
+
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>Selected date</div>
+            <div>{selectedDate}</div>
+            {selectedEntry ? (
+              <div style={{ marginTop: 6, fontSize: 12, opacity: 0.75 }}>
+                Saved: {selectedEntry.audience} · fun {selectedEntry.fun_level} ·{" "}
+                {selectedEntry.entry_type === "boundary" ? "Pushy Mode" : "Excuse"}
+              </div>
+            ) : (
+              <div style={{ marginTop: 6, fontSize: 12, opacity: 0.75 }}>
+                Not saved yet (draft auto-generated).
+              </div>
+            )}
+          </div>
+
+          <label style={{ display: "block", marginBottom: 8 }}>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>Audience</div>
+            <select
+              value={audience}
+              onChange={(e) => setAudience(e.target.value as Audience)}
+              style={{ width: "100%", padding: 8, borderRadius: 8 }}
+            >
+              <option value="work">Work</option>
+              <option value="friends">Friends</option>
+              <option value="family">Family</option>
+            </select>
+          </label>
+
+          <label style={{ display: "block", marginBottom: 8 }}>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>Fun level (0 = straight, 3 = spicy)</div>
+            <input
+              type="range"
+              min={0}
+              max={3}
+              value={funLevel}
+              onChange={(e) => setFunLevel(Number(e.target.value))}
+              style={{ width: "100%" }}
+            />
+            <div style={{ fontSize: 12, opacity: 0.75 }}>Current: {funLevel}</div>
+          </label>
+
+          <label style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 10 }}>
+            <input
+              type="checkbox"
+              checked={pushyMode}
+              onChange={(e) => setPushyMode(e.target.checked)}
+            />
+            <div>
+              <div style={{ fontWeight: 800 }}>Pushy People Mode</div>
+              <div style={{ fontSize: 12, opacity: 0.75 }}>Short boundary scripts instead of excuses.</div>
+            </div>
+          </label>
+
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            <button
+              onClick={onGenerate}
+              style={{ flex: 1, padding: 10, borderRadius: 10, border: "1px solid #111", cursor: "pointer" }}
+            >
+              Generate
+            </button>
+            <button
+              onClick={onSave}
+              style={{ flex: 1, padding: 10, borderRadius: 10, border: "1px solid #111", cursor: "pointer" }}
+            >
+              Save
+            </button>
+          </div>
+
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={7}
+            style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid #ccc" }}
+          />
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginTop: 10 }}>
+            <button onClick={() => onRewrite("shorter")} style={btnStyle}>
+              Shorter
+            </button>
+            <button onClick={() => onRewrite("firmer")} style={btnStyle}>
+              Firmer
+            </button>
+            <button onClick={() => onRewrite("workSafe")} style={btnStyle}>
+              Work-safe
+            </button>
+            <button onClick={() => onRewrite("noDetails")} style={btnStyle}>
+              No-details
+            </button>
+            <button onClick={() => onRewrite("reschedule")} style={btnStyle}>
+              Reschedule
+            </button>
+            <button
+              onClick={copyToClipboard}
+              disabled={!draft.trim()}
+              style={{ ...btnStyle, opacity: draft.trim() ? 1 : 0.5 }}
+            >
+              Copy
+            </button>
+          </div>
+
+          <a
+            style={{
+              display: "block",
+              marginTop: 10,
+              padding: 10,
+              borderRadius: 10,
+              border: "1px solid #111",
+              textAlign: "center",
+              textDecoration: "none",
+              color: "inherit",
+            }}
+            href={`/api/ics?date=${encodeURIComponent(selectedDate)}&title=${encodeURIComponent(
+              "Busy / Not available"
+            )}&note=${encodeURIComponent(draft)}`}
+          >
+            Export .ics
+          </a>
+
+          {tip && (
+            <div style={{ marginTop: 12, padding: 12, border: "1px solid #eee", borderRadius: 12 }}>
+              <div style={{ fontWeight: 800, marginBottom: 6 }}>Pro Tip of the Day</div>
+              <div style={{ fontWeight: 700 }}>{tip.title}</div>
+              <p style={{ margin: "6px 0 0 0", opacity: 0.85 }}>{tip.body}</p>
+            </div>
+          )}
+        </div>
+      </section>
     </main>
   );
 }

@@ -12,5 +12,3 @@ export function getDeviceId(): string {
   localStorage.setItem(KEY, id);
   return id;
 }
-
-

@@ -61,7 +61,7 @@ const BANK = {
       "Can you save me leftovers? 🙂",
     ],
   },
-};
+} as const;
 
 const BOUNDARY_BANK: Record<Audience, string[]> = {
   work: [
@@ -142,24 +142,13 @@ export function rewriteVariant(
     const first = t.split(/[.!?]/).filter(Boolean)[0];
     return first ? `${first}.` : t;
   }
-
-  if (variant === "noDetails") {
-    return "I’m not able to make it. Thanks for understanding.";
-  }
-
-  if (variant === "workSafe") {
+  if (variant === "noDetails") return "I’m not able to make it. Thanks for understanding.";
+  if (variant === "workSafe")
     return "I’m not able to make it at that time. Please send notes and I’ll follow up.";
-  }
-
-  if (variant === "firmer") {
-    return "I can’t make it. I’m not able to change that.";
-  }
-
+  if (variant === "firmer") return "I can’t make it. I’m not able to change that.";
   if (variant === "reschedule") {
     const { ALT1, ALT2 } = altTimes(date);
     return `I can’t make it. Could we do ${ALT1} or ${ALT2} instead?`;
   }
-
   return t;
 }
-
