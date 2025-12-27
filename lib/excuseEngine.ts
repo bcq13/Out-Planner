@@ -25,11 +25,12 @@ function classifyRequest(req: string) {
   if (/(meeting|call|zoom|presentation|deadline|cover|shift|schedule|report|review)/.test(r)) return "work";
   if (/(help move|moving|lift|truck|furniture|boxes)/.test(r)) return "moving";
   if (/(volunteer|serve|church|team|sign up|help out)/.test(r)) return "volunteer";
+
   return "general" as const;
 }
 
 function reasonByType(type: ReturnType<typeof classifyRequest>, audience: Audience) {
-  // Believable reasons that don’t require lies, illness, or drama.
+  // Believable reasons that don't require lies or medical claims.
   const base = {
     schedule: "my schedule’s already committed",
     bandwidth: "I’m at capacity and need to protect my bandwidth",
@@ -55,6 +56,54 @@ function reasonByType(type: ReturnType<typeof classifyRequest>, audience: Audien
   }
 }
 
+function leadInForRequest(req: string) {
+  const r = normalize(req);
+  if (!r) return "";
+  return `About “${r}”: `;
+}
+
+/**
+ * Optional reflective closers (the "make them think" mode)
+ * These are intentionally short, human, and not preachy.
+ */
+const PEOPLE_ASK_TOO_MUCH: Record<Mood, string[]> = {
+  kind: [
+    "I’m trying to keep my commitments realistic.",
+    "I’m learning to protect my time a little better.",
+    "I’m practicing saying no so I can show up well to what I’ve already said yes to.",
+  ],
+  professional: [
+    "I’m managing workload and priorities carefully right now.",
+    "I’m keeping my commitments aligned with capacity.",
+    "I’m protecting focus time this week.",
+  ],
+  funny: [
+    "I’m not accepting new side quests right now.",
+    "My calendar is not an all-you-can-eat buffet.",
+    "I’m currently at maximum adult capacity.",
+  ],
+  standup: [
+    "If I say yes to everything, I become a subscription service.",
+    "It’s wild how ‘Can you help?’ sometimes means ‘Can you adopt my responsibilities?’",
+    "People really will ask for a mile when you once offered an inch—respectfully, I’m not a highway.",
+  ],
+  spicy: [
+    "I’m not available for that.",
+    "That’s not going to work.",
+    "No.",
+  ],
+  firm: [
+    "I’m not changing my answer.",
+    "Please respect my decision.",
+    "My answer is no.",
+  ],
+  noDetails: [
+    "No.",
+    "I can’t.",
+    "Not happening.",
+  ],
+};
+
 const GENERIC: Record<Mood, string[]> = {
   kind: [
     "I can’t make it today, but thank you for thinking of me.",
@@ -74,18 +123,13 @@ const GENERIC: Record<Mood, string[]> = {
     "Today is not a people day.",
     "My social battery is on 1%.",
   ],
-  // Clean, observational humor — “makes people think” vibe
   standup: [
     "I can’t, and it’s not personal — it’s math. I only have one body and it’s already booked.",
     "I would, but I’m currently at maximum adult capacity. Any additional tasks will void the warranty.",
     "I can’t — I’m trying this new thing where I don’t overcommit and then quietly resent everyone.",
     "I’m going to pass. I’ve realized being available is how people accidentally assign you a second job.",
     "I can’t, but I respect the confidence it took to ask.",
-    "I’m unavailable. My time isn’t unlimited — it just *looks* unlimited to other people.",
-    "I can’t. If I say yes to everything, I’m basically a subscription service.",
-    "Not today. I’m returning to my natural habitat: minding my own business.",
-    "I can’t — I’m in a committed relationship with my calendar.",
-    "I’m going to say no. I’m practicing boundaries like they’re a new hobby.",
+    "I’m unavailable. My time isn’t unlimited — it just looks unlimited to other people.",
   ],
   spicy: ["No thanks.", "Hard pass.", "I’m opting out.", "Not happening."],
   firm: [
@@ -97,17 +141,28 @@ const GENERIC: Record<Mood, string[]> = {
   noDetails: ["I can’t.", "I’m unavailable.", "No.", "Not this time."],
 };
 
-function leadInForRequest(req: string) {
-  const r = normalize(req);
-  if (!r) return "";
-  return `About “${r}”: `;
+function maybeAddCloser(text: string, mood: Mood, makeThemThink: boolean) {
+  if (!makeThemThink) return text;
+
+  // Keep "No details" truly no-details.
+  if (mood === "noDetails") return text;
+
+  // Don't double-close if user already has punctuation / long message; just append short.
+  const closer = pick(PEOPLE_ASK_TOO_MUCH[mood]);
+  return `${text} ${closer}`;
 }
 
-export function generateExcuse(mood: Mood) {
-  return pick(GENERIC[mood]);
+export function generateExcuse(mood: Mood, makeThemThink = false) {
+  const base = pick(GENERIC[mood]);
+  return maybeAddCloser(base, mood, makeThemThink);
 }
 
-export function generateFromRequest(opts: { mood: Mood; audience: Audience; request: string }) {
+export function generateFromRequest(opts: {
+  mood: Mood;
+  audience: Audience;
+  request: string;
+  makeThemThink?: boolean;
+}) {
   const request = normalize(opts.request);
   const type = classifyRequest(request);
   const reason = reasonByType(type, opts.audience);
@@ -150,19 +205,32 @@ export function generateFromRequest(opts: { mood: Mood; audience: Audience; requ
     ],
   };
 
-  return pick(templates[opts.mood]);
+  const base = pick(templates[opts.mood]);
+  return maybeAddCloser(base, opts.mood, !!opts.makeThemThink);
 }
 
-// Contextual escalation: references the request, gets firmer each time.
-export function escalateFromRequest(opts: { level: number; mood: Mood; audience: Audience; request: string }) {
+// Contextual escalation: stays on-topic and gets firmer each time.
+export function escalateFromRequest(opts: {
+  level: number;
+  mood: Mood;
+  audience: Audience;
+  request: string;
+  makeThemThink?: boolean;
+}) {
   const request = normalize(opts.request);
-  const lead = leadInForRequest(request);
   const type = classifyRequest(request);
   const reason = reasonByType(type, opts.audience);
+  const lead = leadInForRequest(request);
 
-  const level0 = generateFromRequest(opts); // first response is mood-based
+  const first = generateFromRequest({
+    mood: opts.mood,
+    audience: opts.audience,
+    request: opts.request,
+    makeThemThink: opts.makeThemThink,
+  });
+
   const ladder = [
-    level0,
+    first,
     `${lead}I hear you — I’m still not able to. ${reason}.`,
     `${lead}My answer is still no. Please respect that.`,
     `${lead}I’m not discussing this further.`,
@@ -173,7 +241,13 @@ export function escalateFromRequest(opts: { level: number; mood: Mood; audience:
   return ladder[idx];
 }
 
-export function rewriteVariant(_text: string, mood: Mood, audience: Audience, request: string) {
-  if (normalize(request)) return generateFromRequest({ mood, audience, request });
-  return generateExcuse(mood);
+export function rewriteVariant(
+  _text: string,
+  mood: Mood,
+  audience: Audience,
+  request: string,
+  makeThemThink = false
+) {
+  if (normalize(request)) return generateFromRequest({ mood, audience, request, makeThemThink });
+  return generateExcuse(mood, makeThemThink);
 }

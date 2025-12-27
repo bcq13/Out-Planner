@@ -2,7 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getDeviceId } from "@/lib/deviceId";
-import { escalate, generateExcuse, generateFromRequest, rewriteVariant } from "@/lib/excuseEngine";
+import {
+  escalateFromRequest,
+  generateExcuse,
+  generateFromRequest,
+  rewriteVariant,
+} from "@/lib/excuseEngine";
 import type { Audience, Mood } from "@/lib/excuseEngine";
 
 type Saved = { text: string; favorite?: boolean; createdAt: number };
@@ -36,6 +41,7 @@ export default function HomePage() {
 
   const [audience, setAudience] = useState<Audience>("friends");
   const [mood, setMood] = useState<Mood>("kind");
+  const [makeThemThink, setMakeThemThink] = useState<boolean>(false);
   const [request, setRequest] = useState<string>("");
 
   const [draft, setDraft] = useState<string>("");
@@ -56,7 +62,7 @@ export default function HomePage() {
       if (raw) setSaved(JSON.parse(raw));
     } catch {}
 
-    setDraft(generateExcuse("kind"));
+    setDraft(generateExcuse("kind", false));
   }, []);
 
   // Persist saved
@@ -70,7 +76,6 @@ export default function HomePage() {
   const favorites = useMemo(() => saved.filter((s) => s.favorite), [saved]);
 
   function haptic() {
-    // Optional tiny vibration on supported devices (won’t do anything on most desktops)
     try {
       if ("vibrate" in navigator) (navigator as any).vibrate?.(10);
     } catch {}
@@ -83,8 +88,8 @@ export default function HomePage() {
 
   function makeDraft() {
     const hasRequest = normalize(request).length > 0;
-    if (hasRequest) return generateFromRequest({ mood, audience, request });
-    return generateExcuse(mood);
+    if (hasRequest) return generateFromRequest({ mood, audience, request, makeThemThink });
+    return generateExcuse(mood, makeThemThink);
   }
 
   function onGenerate() {
@@ -98,7 +103,15 @@ export default function HomePage() {
     haptic();
     const next = escalation + 1;
     setEscalation(next);
-    setDraft(escalate(next));
+    setDraft(
+      escalateFromRequest({
+        level: next,
+        mood,
+        audience,
+        request,
+        makeThemThink,
+      })
+    );
     setStatus("");
   }
 
@@ -139,9 +152,19 @@ export default function HomePage() {
   function onRewrite(nextMood: Mood) {
     haptic();
     setMood(nextMood);
-    setDraft((prev) => rewriteVariant(prev, nextMood, audience, request));
+    setDraft((prev) => rewriteVariant(prev, nextMood, audience, request, makeThemThink));
     setStatus("");
   }
+
+  // If user toggles make-them-think, refresh draft to reflect it (without changing their text if they edited)
+  useEffect(() => {
+    // Only auto-refresh if the draft looks generated (simple heuristic: not empty and request-based changes are desired)
+    if (!draft.trim()) return;
+    // Keep it predictable: regenerate on toggle only if request exists OR draft equals a known generated baseline size.
+    // We'll just regenerate to match toggle for now.
+    setDraft(makeDraft());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [makeThemThink]);
 
   return (
     <main
@@ -157,7 +180,7 @@ export default function HomePage() {
         <div>
           <h1 style={{ fontSize: 34, margin: 0 }}>OutPlanner</h1>
           <p style={{ marginTop: 8, opacity: 0.72 }}>
-            Say no without guilt. Copy. Save. Escalate when they won’t stop.
+            Calm, confident “no.” With humor, boundaries, and one-tap copy.
           </p>
         </div>
 
@@ -177,17 +200,18 @@ export default function HomePage() {
         {/* LEFT */}
         <div className="card">
           <div style={{ display: "grid", gap: 10 }}>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
               <div style={{ display: "grid", gap: 6 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85 }}>Select mood</div>
                 <select
                   value={mood}
                   onChange={(e) => setMood(e.target.value as Mood)}
-                  style={{ padding: "10px 14px", borderRadius: 12, minWidth: 220 }}
+                  style={{ padding: "10px 14px", borderRadius: 12, minWidth: 240 }}
                 >
                   <option value="kind">Kind</option>
                   <option value="professional">Professional</option>
                   <option value="funny">Funny</option>
+                  <option value="standup">Standup (observational)</option>
                   <option value="spicy">Spicy</option>
                   <option value="firm">Firm</option>
                   <option value="noDetails">No details</option>
@@ -199,13 +223,35 @@ export default function HomePage() {
                 <select
                   value={audience}
                   onChange={(e) => setAudience(e.target.value as Audience)}
-                  style={{ padding: "10px 14px", borderRadius: 12, minWidth: 220 }}
+                  style={{ padding: "10px 14px", borderRadius: 12, minWidth: 200 }}
                 >
                   <option value="friends">Friends</option>
                   <option value="family">Family</option>
                   <option value="work">Work</option>
                 </select>
               </div>
+
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "10px 14px",
+                  borderRadius: 12,
+                  border: "1px solid var(--border)",
+                  background: "var(--surface2)",
+                  cursor: "pointer",
+                  userSelect: "none",
+                }}
+                title="Adds a short reflective closer (polite, but makes people think)"
+              >
+                <input
+                  type="checkbox"
+                  checked={makeThemThink}
+                  onChange={(e) => setMakeThemThink(e.target.checked)}
+                />
+                <span style={{ fontSize: 13, fontWeight: 700, opacity: 0.9 }}>Make them think</span>
+              </label>
             </div>
 
             <div style={{ display: "grid", gap: 6 }}>
@@ -235,7 +281,6 @@ export default function HomePage() {
                 <button className="btn" onClick={onGenerate}>Generate</button>
                 <button className="btn" onClick={() => onCopy(draft)}>Copy</button>
 
-                {/* Draft star */}
                 <button className="btn" onClick={onSaveFavorite} title="Save draft to Favorites">
                   ★ Save to Favorites
                 </button>
@@ -252,6 +297,7 @@ export default function HomePage() {
                 <button className="btn" onClick={() => onRewrite("professional")}>Work-safe</button>
                 <button className="btn" onClick={() => onRewrite("kind")}>Kinder</button>
                 <button className="btn" onClick={() => onRewrite("funny")}>Funnier</button>
+                <button className="btn" onClick={() => onRewrite("standup")}>More standup</button>
                 <button className="btn" onClick={() => onRewrite("spicy")}>Spicier</button>
               </div>
             </div>
