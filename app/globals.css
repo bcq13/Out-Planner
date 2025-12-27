@@ -1,3 +1,22 @@
+button.calendar-day {
+  color: #000 !important;
+  -webkit-text-fill-color: #000 !important;
+  text-shadow: none !important;
+  opacity: 1 !important;
+}
+.calendar-day .day-num {
+  color: #000 !important;
+  -webkit-text-fill-color: #000 !important;
+  opacity: 1 !important;
+}
+button {
+  color: #000 !important;
+  -webkit-text-fill-color: #000 !important;
+}
+button {
+  color: #000;
+}
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
@@ -40,3 +59,19 @@ a {
     color-scheme: dark;
   }
 }
+.calendar-day .day-num {
+  color: red !important;
+  -webkit-text-fill-color: red !important;
+  font-size: 22px !important;
+  font-weight: 900 !important;
+  line-height: 1 !important;
+  display: inline-block !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+.calendar-day {
+  color: red !important;
+  -webkit-text-fill-color: red !important;
+}
+
